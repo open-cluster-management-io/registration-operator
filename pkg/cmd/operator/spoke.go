@@ -12,7 +12,7 @@ import (
 // NewSpokeOperatorCmd generatee a command to start spoke operator
 func NewSpokeOperatorCmd() *cobra.Command {
 	cmd := controllercmd.
-		NewControllerCommandConfig("nucleus-spoke", version.Get(), operators.RunNucleusSpokeOperator).
+		NewControllerCommandConfig("klusterlet", version.Get(), operators.RunNucleusSpokeOperator).
 		NewCommand()
 	cmd.Use = "spoke"
 	cmd.Short = "Start the nucleus hub operator"

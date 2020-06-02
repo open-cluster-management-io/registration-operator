@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	nucleusv1client "github.com/open-cluster-management/api/client/nucleus/clientset/versioned/typed/nucleus/v1"
-	nucleusapiv1 "github.com/open-cluster-management/api/nucleus/v1"
+	nucleusv1client "github.com/open-cluster-management/api/client/operator/clientset/versioned/typed/operator/v1"
+	nucleusapiv1 "github.com/open-cluster-management/api/operator/v1"
 	admissionv1 "k8s.io/api/admissionregistration/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -81,17 +81,17 @@ func SetNucleusCondition(conditions *[]nucleusapiv1.StatusCondition, newConditio
 	existingCondition.Message = newCondition.Message
 }
 
-type UpdateNucleusHubStatusFunc func(status *nucleusapiv1.HubCoreStatus) error
+type UpdateNucleusHubStatusFunc func(status *nucleusapiv1.ClusterManagerStatus) error
 
 func UpdateNucleusHubStatus(
 	ctx context.Context,
-	client nucleusv1client.HubCoreInterface,
-	nucleusHubCoreName string,
-	updateFuncs ...UpdateNucleusHubStatusFunc) (*nucleusapiv1.HubCoreStatus, bool, error) {
+	client nucleusv1client.ClusterManagerInterface,
+	nucleusClusterManagerName string,
+	updateFuncs ...UpdateNucleusHubStatusFunc) (*nucleusapiv1.ClusterManagerStatus, bool, error) {
 	updated := false
-	var updatedSpokeClusterStatus *nucleusapiv1.HubCoreStatus
+	var updatedSpokeClusterStatus *nucleusapiv1.ClusterManagerStatus
 	err := retry.RetryOnConflict(retry.DefaultBackoff, func() error {
-		hubCore, err := client.Get(ctx, nucleusHubCoreName, metav1.GetOptions{})
+		hubCore, err := client.Get(ctx, nucleusClusterManagerName, metav1.GetOptions{})
 		if err != nil {
 			return err
 		}
@@ -123,7 +123,7 @@ func UpdateNucleusHubStatus(
 }
 
 func UpdateNucleusHubConditionFn(conds ...nucleusapiv1.StatusCondition) UpdateNucleusHubStatusFunc {
-	return func(oldStatus *nucleusapiv1.HubCoreStatus) error {
+	return func(oldStatus *nucleusapiv1.ClusterManagerStatus) error {
 		for _, cond := range conds {
 			SetNucleusCondition(&oldStatus.Conditions, cond)
 		}
@@ -131,17 +131,17 @@ func UpdateNucleusHubConditionFn(conds ...nucleusapiv1.StatusCondition) UpdateNu
 	}
 }
 
-type UpdateNucleusSpokeStatusFunc func(status *nucleusapiv1.SpokeCoreStatus) error
+type UpdateNucleusSpokeStatusFunc func(status *nucleusapiv1.KlusterletStatus) error
 
 func UpdateNucleusSpokeStatus(
 	ctx context.Context,
-	client nucleusv1client.SpokeCoreInterface,
-	nucleusSpokeCoreName string,
-	updateFuncs ...UpdateNucleusSpokeStatusFunc) (*nucleusapiv1.SpokeCoreStatus, bool, error) {
+	client nucleusv1client.KlusterletInterface,
+	nucleusKlusterletName string,
+	updateFuncs ...UpdateNucleusSpokeStatusFunc) (*nucleusapiv1.KlusterletStatus, bool, error) {
 	updated := false
-	var updatedSpokeClusterStatus *nucleusapiv1.SpokeCoreStatus
+	var updatedSpokeClusterStatus *nucleusapiv1.KlusterletStatus
 	err := retry.RetryOnConflict(retry.DefaultBackoff, func() error {
-		spokeCore, err := client.Get(ctx, nucleusSpokeCoreName, metav1.GetOptions{})
+		spokeCore, err := client.Get(ctx, nucleusKlusterletName, metav1.GetOptions{})
 		if err != nil {
 			return err
 		}
@@ -173,7 +173,7 @@ func UpdateNucleusSpokeStatus(
 }
 
 func UpdateNucleusSpokeConditionFn(conds ...nucleusapiv1.StatusCondition) UpdateNucleusSpokeStatusFunc {
-	return func(oldStatus *nucleusapiv1.SpokeCoreStatus) error {
+	return func(oldStatus *nucleusapiv1.KlusterletStatus) error {
 		for _, cond := range conds {
 			SetNucleusCondition(&oldStatus.Conditions, cond)
 		}

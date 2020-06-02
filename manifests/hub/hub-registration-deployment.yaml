@@ -1,14 +1,22 @@
 kind: Deployment
 apiVersion: apps/v1
 metadata:
+<<<<<<< 249448baea60bb7d36bf7ea1c432e54623de372d:manifests/hub/hub-registration-deployment.yaml
   name: {{ .HubCoreName }}-registration-controller
   namespace: {{ .HubCoreNamespace }}
   labels:
     app: nucleushub-registration-controller
+=======
+  name: {{ .ClusterManagerName }}-controller
+  namespace: {{ .ClusterManagerNamespace }}
+  labels:
+    app: clustermanager-controller
+>>>>>>> Adopt new API updates for operator:manifests/hub/hub-deployment.yaml
 spec:
   replicas: 3
   selector:
     matchLabels:
+<<<<<<< 249448baea60bb7d36bf7ea1c432e54623de372d:manifests/hub/hub-registration-deployment.yaml
       app: nucleushub-registration-controller
   template:
     metadata:
@@ -16,6 +24,15 @@ spec:
         app: nucleushub-registration-controller
     spec:
       serviceAccountName: {{ .HubCoreName }}-registration-controller-sa
+=======
+      app: clustermanager-controller
+  template:
+    metadata:
+      labels:
+        app: clustermanager-controller
+    spec:
+      serviceAccountName: {{ .ClusterManagerName }}-sa
+>>>>>>> Adopt new API updates for operator:manifests/hub/hub-deployment.yaml
       containers:
       - name: hub-registration-controller
         image: {{ .RegistrationImage }}

@@ -12,7 +12,7 @@ import (
 // NewHubOperatorCmd generatee a command to start hub operator
 func NewHubOperatorCmd() *cobra.Command {
 	cmd := controllercmd.
-		NewControllerCommandConfig("nucleus-hub", version.Get(), operators.RunNucleusHubOperator).
+		NewControllerCommandConfig("clustermanager", version.Get(), operators.RunNucleusHubOperator).
 		NewCommand()
 	cmd.Use = "hub"
 	cmd.Short = "Start the nucleus hub operator"

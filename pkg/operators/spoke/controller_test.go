@@ -7,9 +7,9 @@ import (
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
-	fakenucleusclient "github.com/open-cluster-management/api/client/nucleus/clientset/versioned/fake"
-	nucleusinformers "github.com/open-cluster-management/api/client/nucleus/informers/externalversions"
-	nucleusapiv1 "github.com/open-cluster-management/api/nucleus/v1"
+	fakenucleusclient "github.com/open-cluster-management/api/client/operator/clientset/versioned/fake"
+	nucleusinformers "github.com/open-cluster-management/api/client/operator/informers/externalversions"
+	nucleusapiv1 "github.com/open-cluster-management/api/operator/v1"
 	"github.com/open-cluster-management/nucleus/pkg/helpers"
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/events/eventstesting"
@@ -59,13 +59,13 @@ func newSecret(name, namespace string) *corev1.Secret {
 	}
 }
 
-func newSpokeCore(name, namespace, clustername string) *nucleusapiv1.SpokeCore {
-	return &nucleusapiv1.SpokeCore{
+func newKlusterlet(name, namespace, clustername string) *nucleusapiv1.Klusterlet {
+	return &nucleusapiv1.Klusterlet{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:       name,
 			Finalizers: []string{nucleusSpokeFinalizer},
 		},
-		Spec: nucleusapiv1.SpokeCoreSpec{
+		Spec: nucleusapiv1.KlusterletSpec{
 			RegistrationImagePullSpec: "testregistration",
 			WorkImagePullSpec:         "testwork",
 			ClusterName:               clustername,
@@ -83,18 +83,18 @@ func newNamespace(name string) *corev1.Namespace {
 	}
 }
 
-func newTestController(spokecore *nucleusapiv1.SpokeCore, objects ...runtime.Object) *testController {
+func newTestController(spokecore *nucleusapiv1.Klusterlet, objects ...runtime.Object) *testController {
 	fakeKubeClient := fakekube.NewSimpleClientset(objects...)
 	fakeNucleusClient := fakenucleusclient.NewSimpleClientset(spokecore)
 	nucleusInformers := nucleusinformers.NewSharedInformerFactory(fakeNucleusClient, 5*time.Minute)
 
 	hubController := &nucleusSpokeController{
-		nucleusClient: fakeNucleusClient.NucleusV1().SpokeCores(),
+		nucleusClient: fakeNucleusClient.OperatorV1().Klusterlets(),
 		kubeClient:    fakeKubeClient,
-		nucleusLister: nucleusInformers.Nucleus().V1().SpokeCores().Lister(),
+		nucleusLister: nucleusInformers.Operator().V1().Klusterlets().Lister(),
 	}
 
-	store := nucleusInformers.Nucleus().V1().SpokeCores().Informer().GetStore()
+	store := nucleusInformers.Operator().V1().Klusterlets().Informer().GetStore()
 	store.Add(spokecore)
 
 	return &testController{
@@ -127,7 +127,7 @@ func namedCondition(name string, status metav1.ConditionStatus) nucleusapiv1.Sta
 func assertOnlyConditions(t *testing.T, actual runtime.Object, expectedConditions ...nucleusapiv1.StatusCondition) {
 	t.Helper()
 
-	spokeCore := actual.(*nucleusapiv1.SpokeCore)
+	spokeCore := actual.(*nucleusapiv1.Klusterlet)
 	actualConditions := spokeCore.Status.Conditions
 	if len(actualConditions) != len(expectedConditions) {
 		t.Errorf("expected %v condition but got: %v", len(expectedConditions), spew.Sdump(actualConditions))
@@ -154,7 +154,7 @@ func ensureNameNamespace(t *testing.T, actualName, actualNamespace, name, namesp
 	}
 }
 
-func ensureObject(t *testing.T, object runtime.Object, spokeCore *nucleusapiv1.SpokeCore) {
+func ensureObject(t *testing.T, object runtime.Object, spokeCore *nucleusapiv1.Klusterlet) {
 	access, err := meta.Accessor(object)
 	if err != nil {
 		t.Errorf("Unable to access objectmeta: %v", err)
@@ -184,7 +184,7 @@ func ensureObject(t *testing.T, object runtime.Object, spokeCore *nucleusapiv1.S
 
 // TestSyncDeploy test deployment of spoke components
 func TestSyncDeploy(t *testing.T) {
-	spokeCore := newSpokeCore("testspoke", "testns", "cluster1")
+	spokeCore := newKlusterlet("testspoke", "testns", "cluster1")
 	bootStrapSecret := newSecret(bootstrapHubKubeConfigSecret, "testns")
 	hubKubeConfigSecret := newSecret(hubKubeConfigSecret, "testns")
 	hubKubeConfigSecret.Data["kubeconfig"] = []byte("dummuykubeconnfig")
@@ -231,7 +231,7 @@ func TestSyncDeploy(t *testing.T) {
 
 // TestSyncWithNoSecret test the scenario that bootstrap secret and hub config secret does not exist
 func TestSyncWithNoSecret(t *testing.T) {
-	spokeCore := newSpokeCore("testspoke", "testns", "")
+	spokeCore := newKlusterlet("testspoke", "testns", "")
 	bootStrapSecret := newSecret(bootstrapHubKubeConfigSecret, "testns")
 	hubSecret := newSecret(hubKubeConfigSecret, "testns")
 	namespace := newNamespace("testns")
@@ -321,7 +321,7 @@ func TestSyncWithNoSecret(t *testing.T) {
 
 // TestSyncDelete test cleanup hub deploy
 func TestSyncDelete(t *testing.T) {
-	spokeCore := newSpokeCore("testspoke", "testns", "")
+	spokeCore := newKlusterlet("testspoke", "testns", "")
 	now := metav1.Now()
 	spokeCore.ObjectMeta.SetDeletionTimestamp(&now)
 	namespace := newNamespace("testns")
@@ -347,8 +347,8 @@ func TestSyncDelete(t *testing.T) {
 	}
 }
 
-// TestGetServersFromSpokeCore tests getServersFromSpokeCore func
-func TestGetServersFromSpokeCore(t *testing.T) {
+// TestGetServersFromKlusterlet tests getServersFromKlusterlet func
+func TestGetServersFromKlusterlet(t *testing.T) {
 	cases := []struct {
 		name     string
 		servers  []string
@@ -378,12 +378,12 @@ func TestGetServersFromSpokeCore(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			spokeCore := newSpokeCore("testspoke", "testns", "")
+			spokeCore := newKlusterlet("testspoke", "testns", "")
 			for _, server := range c.servers {
 				spokeCore.Spec.ExternalServerURLs = append(spokeCore.Spec.ExternalServerURLs,
 					nucleusapiv1.ServerURL{URL: server})
 			}
-			actual := getServersFromSpokeCore(spokeCore)
+			actual := getServersFromKlusterlet(spokeCore)
 			if actual != c.expected {
 				t.Errorf("Expected to be same, actual %q, expected %q", actual, c.expected)
 			}

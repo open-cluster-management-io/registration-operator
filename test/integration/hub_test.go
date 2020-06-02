@@ -15,7 +15,7 @@ import (
 	"github.com/open-cluster-management/nucleus/pkg/operators"
 	"github.com/open-cluster-management/nucleus/test/integration/util"
 
-	nucleusapiv1 "github.com/open-cluster-management/api/nucleus/v1"
+	nucleusapiv1 "github.com/open-cluster-management/api/operator/v1"
 )
 
 func startHubOperator(ctx context.Context) {

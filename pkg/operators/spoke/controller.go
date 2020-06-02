@@ -21,10 +21,10 @@ import (
 	"github.com/openshift/library-go/pkg/operator/resource/resourceapply"
 	operatorhelpers "github.com/openshift/library-go/pkg/operator/v1helpers"
 
-	nucleusv1client "github.com/open-cluster-management/api/client/nucleus/clientset/versioned/typed/nucleus/v1"
-	nucleusinformer "github.com/open-cluster-management/api/client/nucleus/informers/externalversions/nucleus/v1"
-	nucleuslister "github.com/open-cluster-management/api/client/nucleus/listers/nucleus/v1"
-	nucleusapiv1 "github.com/open-cluster-management/api/nucleus/v1"
+	nucleusv1client "github.com/open-cluster-management/api/client/operator/clientset/versioned/typed/operator/v1"
+	nucleusinformer "github.com/open-cluster-management/api/client/operator/informers/externalversions/operator/v1"
+	nucleuslister "github.com/open-cluster-management/api/client/operator/listers/operator/v1"
+	nucleusapiv1 "github.com/open-cluster-management/api/operator/v1"
 	"github.com/open-cluster-management/nucleus/pkg/helpers"
 	"github.com/open-cluster-management/nucleus/pkg/operators/spoke/bindata"
 )
@@ -33,7 +33,7 @@ const (
 	nucleusSpokeFinalizer        = "nucleus.open-cluster-management.io/spoke-core-cleanup"
 	bootstrapHubKubeConfigSecret = "bootstrap-hub-kubeconfig"
 	hubKubeConfigSecret          = "hub-kubeconfig-secret"
-	nucleusSpokeCoreNamespace    = "open-cluster-management-spoke"
+	nucleusKlusterletNamespace   = "open-cluster-management-agent"
 	spokeCoreApplied             = "Applied"
 	spokeRegistrationDegraded    = "SpokeRegistrationDegraded"
 )
@@ -53,8 +53,8 @@ var (
 )
 
 type nucleusSpokeController struct {
-	nucleusClient          nucleusv1client.SpokeCoreInterface
-	nucleusLister          nucleuslister.SpokeCoreLister
+	nucleusClient          nucleusv1client.KlusterletInterface
+	nucleusLister          nucleuslister.KlusterletLister
 	kubeClient             kubernetes.Interface
 	registrationGeneration int64
 	workGeneration         int64
@@ -63,8 +63,8 @@ type nucleusSpokeController struct {
 // NewNucleusSpokeController construct nucleus spoke controller
 func NewNucleusSpokeController(
 	kubeClient kubernetes.Interface,
-	nucleusClient nucleusv1client.SpokeCoreInterface,
-	nucleusInformer nucleusinformer.SpokeCoreInformer,
+	nucleusClient nucleusv1client.KlusterletInterface,
+	nucleusInformer nucleusinformer.KlusterletInformer,
 	recorder events.Recorder) factory.Controller {
 	controller := &nucleusSpokeController{
 		kubeClient:    kubeClient,
@@ -82,8 +82,8 @@ func NewNucleusSpokeController(
 
 // spokeConfig is used to render the template of hub manifests
 type spokeConfig struct {
-	SpokeCoreName             string
-	SpokeCoreNamespace        string
+	KlusterletName            string
+	KlusterletNamespace       string
 	RegistrationImage         string
 	WorkImage                 string
 	ClusterName               string
@@ -94,7 +94,7 @@ type spokeConfig struct {
 
 func (n *nucleusSpokeController) sync(ctx context.Context, controllerContext factory.SyncContext) error {
 	spokeCoreName := controllerContext.QueueKey()
-	klog.V(4).Infof("Reconciling SpokeCore %q", spokeCoreName)
+	klog.V(4).Infof("Reconciling Klusterlet %q", spokeCoreName)
 	spokeCore, err := n.nucleusLister.Get(spokeCoreName)
 	if errors.IsNotFound(err) {
 		// AgentCore not found, could have been deleted, do nothing.
@@ -106,18 +106,18 @@ func (n *nucleusSpokeController) sync(ctx context.Context, controllerContext fac
 	spokeCore = spokeCore.DeepCopy()
 
 	config := spokeConfig{
-		SpokeCoreName:             spokeCore.Name,
-		SpokeCoreNamespace:        spokeCore.Spec.Namespace,
+		KlusterletName:            spokeCore.Name,
+		KlusterletNamespace:       spokeCore.Spec.Namespace,
 		RegistrationImage:         spokeCore.Spec.RegistrationImagePullSpec,
 		WorkImage:                 spokeCore.Spec.WorkImagePullSpec,
 		ClusterName:               spokeCore.Spec.ClusterName,
 		BootStrapKubeConfigSecret: bootstrapHubKubeConfigSecret,
 		HubKubeConfigSecret:       hubKubeConfigSecret,
-		ExternalServerURL:         getServersFromSpokeCore(spokeCore),
+		ExternalServerURL:         getServersFromKlusterlet(spokeCore),
 	}
 	// If namespace is not set, use the default namespace
-	if config.SpokeCoreNamespace == "" {
-		config.SpokeCoreNamespace = nucleusSpokeCoreNamespace
+	if config.KlusterletNamespace == "" {
+		config.KlusterletNamespace = nucleusKlusterletNamespace
 	}
 
 	// Update finalizer at first
@@ -136,7 +136,7 @@ func (n *nucleusSpokeController) sync(ctx context.Context, controllerContext fac
 		}
 	}
 
-	// SpokeCore is deleting, we remove its related resources on spoke
+	// Klusterlet is deleting, we remove its related resources on spoke
 	if !spokeCore.DeletionTimestamp.IsZero() {
 		if err := n.cleanUp(ctx, controllerContext, config); err != nil {
 			return err
@@ -146,34 +146,34 @@ func (n *nucleusSpokeController) sync(ctx context.Context, controllerContext fac
 
 	// Start deploy spoke core components
 	// Check if namespace exists
-	_, err = n.kubeClient.CoreV1().Namespaces().Get(ctx, config.SpokeCoreNamespace, metav1.GetOptions{})
+	_, err = n.kubeClient.CoreV1().Namespaces().Get(ctx, config.KlusterletNamespace, metav1.GetOptions{})
 	switch {
 	case errors.IsNotFound(err):
 		_, createErr := n.kubeClient.CoreV1().Namespaces().Create(ctx, &corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{Name: config.SpokeCoreNamespace},
+			ObjectMeta: metav1.ObjectMeta{Name: config.KlusterletNamespace},
 		}, metav1.CreateOptions{})
 		if createErr != nil {
 			helpers.UpdateNucleusSpokeStatus(ctx, n.nucleusClient, spokeCoreName, helpers.UpdateNucleusSpokeConditionFn(nucleusapiv1.StatusCondition{
-				Type: spokeCoreApplied, Status: metav1.ConditionFalse, Reason: "SpokeCoreApplyFailed",
-				Message: fmt.Sprintf("Failed to create namespace %q: %v", config.SpokeCoreNamespace, createErr),
+				Type: spokeCoreApplied, Status: metav1.ConditionFalse, Reason: "KlusterletApplyFailed",
+				Message: fmt.Sprintf("Failed to create namespace %q: %v", config.KlusterletNamespace, createErr),
 			}))
 			return createErr
 		}
 	case err != nil:
 		helpers.UpdateNucleusSpokeStatus(ctx, n.nucleusClient, spokeCoreName, helpers.UpdateNucleusSpokeConditionFn(nucleusapiv1.StatusCondition{
-			Type: spokeCoreApplied, Status: metav1.ConditionFalse, Reason: "SpokeCoreApplyFailed",
-			Message: fmt.Sprintf("Failed to get namespace %q: %v", config.SpokeCoreNamespace, err),
+			Type: spokeCoreApplied, Status: metav1.ConditionFalse, Reason: "KlusterletApplyFailed",
+			Message: fmt.Sprintf("Failed to get namespace %q: %v", config.KlusterletNamespace, err),
 		}))
 		return err
 	}
 
 	// Check if bootstrap secret exists
-	_, err = n.kubeClient.CoreV1().Secrets(config.SpokeCoreNamespace).Get(
+	_, err = n.kubeClient.CoreV1().Secrets(config.KlusterletNamespace).Get(
 		ctx, config.BootStrapKubeConfigSecret, metav1.GetOptions{})
 	if err != nil {
 		helpers.UpdateNucleusSpokeStatus(ctx, n.nucleusClient, spokeCoreName, helpers.UpdateNucleusSpokeConditionFn(nucleusapiv1.StatusCondition{
-			Type: spokeCoreApplied, Status: metav1.ConditionFalse, Reason: "SpokeCoreApplyFailed",
-			Message: fmt.Sprintf("Failed to get bootstrap secret -n %q %q: %v", config.SpokeCoreNamespace, config.BootStrapKubeConfigSecret, err),
+			Type: spokeCoreApplied, Status: metav1.ConditionFalse, Reason: "KlusterletApplyFailed",
+			Message: fmt.Sprintf("Failed to get bootstrap secret -n %q %q: %v", config.KlusterletNamespace, config.BootStrapKubeConfigSecret, err),
 		}))
 		return err
 	}
@@ -198,35 +198,35 @@ func (n *nucleusSpokeController) sync(ctx context.Context, controllerContext fac
 	if len(errs) > 0 {
 		applyErrors := operatorhelpers.NewMultiLineAggregate(errs)
 		helpers.UpdateNucleusSpokeStatus(ctx, n.nucleusClient, spokeCoreName, helpers.UpdateNucleusSpokeConditionFn(nucleusapiv1.StatusCondition{
-			Type: spokeCoreApplied, Status: metav1.ConditionFalse, Reason: "SpokeCoreApplyFailed",
+			Type: spokeCoreApplied, Status: metav1.ConditionFalse, Reason: "KlusterletApplyFailed",
 			Message: applyErrors.Error(),
 		}))
 		return applyErrors
 	}
 
 	// Create hub config secret
-	hubSecret, err := n.kubeClient.CoreV1().Secrets(config.SpokeCoreNamespace).Get(ctx, hubKubeConfigSecret, metav1.GetOptions{})
+	hubSecret, err := n.kubeClient.CoreV1().Secrets(config.KlusterletNamespace).Get(ctx, hubKubeConfigSecret, metav1.GetOptions{})
 	switch {
 	case errors.IsNotFound(err):
 		// Create an empty secret with placeholder
 		hubSecret = &corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      hubKubeConfigSecret,
-				Namespace: config.SpokeCoreNamespace,
+				Namespace: config.KlusterletNamespace,
 			},
 			Data: map[string][]byte{"placeholder": []byte("placeholder")},
 		}
-		hubSecret, err = n.kubeClient.CoreV1().Secrets(config.SpokeCoreNamespace).Create(ctx, hubSecret, metav1.CreateOptions{})
+		hubSecret, err = n.kubeClient.CoreV1().Secrets(config.KlusterletNamespace).Create(ctx, hubSecret, metav1.CreateOptions{})
 		if err != nil {
 			helpers.UpdateNucleusSpokeStatus(ctx, n.nucleusClient, spokeCoreName, helpers.UpdateNucleusSpokeConditionFn(nucleusapiv1.StatusCondition{
-				Type: spokeCoreApplied, Status: metav1.ConditionFalse, Reason: "SpokeCoreApplyFailed",
+				Type: spokeCoreApplied, Status: metav1.ConditionFalse, Reason: "KlusterletApplyFailed",
 				Message: fmt.Sprintf("Failed to create hub kubeconfig secret -n %q %q: %v", hubSecret.Namespace, hubSecret.Name, err),
 			}))
 			return err
 		}
 	case err != nil:
 		helpers.UpdateNucleusSpokeStatus(ctx, n.nucleusClient, spokeCoreName, helpers.UpdateNucleusSpokeConditionFn(nucleusapiv1.StatusCondition{
-			Type: spokeCoreApplied, Status: metav1.ConditionFalse, Reason: "SpokeCoreApplyFailed",
+			Type: spokeCoreApplied, Status: metav1.ConditionFalse, Reason: "KlusterletApplyFailed",
 			Message: fmt.Sprintf("Failed to get hub kubeconfig secret with error %v", err),
 		}))
 		return err
@@ -243,7 +243,7 @@ func (n *nucleusSpokeController) sync(ctx context.Context, controllerContext fac
 		"manifests/spoke/spoke-registration-deployment.yaml")
 	if err != nil {
 		helpers.UpdateNucleusSpokeStatus(ctx, n.nucleusClient, spokeCoreName, helpers.UpdateNucleusSpokeConditionFn(nucleusapiv1.StatusCondition{
-			Type: spokeCoreApplied, Status: metav1.ConditionFalse, Reason: "SpokeCoreApplyFailed",
+			Type: spokeCoreApplied, Status: metav1.ConditionFalse, Reason: "KlusterletApplyFailed",
 			Message: fmt.Sprintf("Failed to deploy registration deployment with error %v", err),
 		}))
 		return err
@@ -262,7 +262,7 @@ func (n *nucleusSpokeController) sync(ctx context.Context, controllerContext fac
 		"manifests/spoke/spoke-work-deployment.yaml")
 	if err != nil {
 		helpers.UpdateNucleusSpokeStatus(ctx, n.nucleusClient, spokeCoreName, helpers.UpdateNucleusSpokeConditionFn(nucleusapiv1.StatusCondition{
-			Type: spokeCoreApplied, Status: metav1.ConditionFalse, Reason: "SpokeCoreApplyFailed",
+			Type: spokeCoreApplied, Status: metav1.ConditionFalse, Reason: "KlusterletApplyFailed",
 			Message: fmt.Sprintf("Failed to deploy work deployment with error %v", err),
 		}))
 		return err
@@ -272,7 +272,7 @@ func (n *nucleusSpokeController) sync(ctx context.Context, controllerContext fac
 
 	// if we get here, we have successfully applied everything and should indicate that
 	helpers.UpdateNucleusSpokeStatus(ctx, n.nucleusClient, spokeCoreName, helpers.UpdateNucleusSpokeConditionFn(nucleusapiv1.StatusCondition{
-		Type: spokeCoreApplied, Status: metav1.ConditionTrue, Reason: "SpokeCoreApplied",
+		Type: spokeCoreApplied, Status: metav1.ConditionTrue, Reason: "KlusterletApplied",
 		Message: "Spoke Core Component Applied",
 	}))
 
@@ -313,20 +313,20 @@ func (n *nucleusSpokeController) sync(ctx context.Context, controllerContext fac
 
 func (n *nucleusSpokeController) cleanUp(ctx context.Context, controllerContext factory.SyncContext, config spokeConfig) error {
 	// Remove deployment
-	registrationDeployment := fmt.Sprintf("%s-registration-agent", config.SpokeCoreName)
-	err := n.kubeClient.AppsV1().Deployments(config.SpokeCoreNamespace).Delete(ctx, registrationDeployment, metav1.DeleteOptions{})
+	registrationDeployment := fmt.Sprintf("%s-registration-agent", config.KlusterletName)
+	err := n.kubeClient.AppsV1().Deployments(config.KlusterletNamespace).Delete(ctx, registrationDeployment, metav1.DeleteOptions{})
 	if err != nil && !errors.IsNotFound(err) {
 		return err
 	}
 	controllerContext.Recorder().Eventf("DeploymentDeleted", "deployment %s is deleted", registrationDeployment)
-	workDeployment := fmt.Sprintf("%s-work-agent", config.SpokeCoreName)
-	err = n.kubeClient.AppsV1().Deployments(config.SpokeCoreNamespace).Delete(ctx, workDeployment, metav1.DeleteOptions{})
+	workDeployment := fmt.Sprintf("%s-work-agent", config.KlusterletName)
+	err = n.kubeClient.AppsV1().Deployments(config.KlusterletNamespace).Delete(ctx, workDeployment, metav1.DeleteOptions{})
 	if err != nil && !errors.IsNotFound(err) {
 		return err
 	}
 
 	// Remove secret
-	err = n.kubeClient.CoreV1().Secrets(config.SpokeCoreNamespace).Delete(ctx, config.HubKubeConfigSecret, metav1.DeleteOptions{})
+	err = n.kubeClient.CoreV1().Secrets(config.KlusterletNamespace).Delete(ctx, config.HubKubeConfigSecret, metav1.DeleteOptions{})
 	if err != nil && !errors.IsNotFound(err) {
 		return err
 	}
@@ -351,7 +351,7 @@ func (n *nucleusSpokeController) cleanUp(ctx context.Context, controllerContext 
 	return nil
 }
 
-func (n *nucleusSpokeController) removeWorkFinalizer(ctx context.Context, deploy *nucleusapiv1.SpokeCore) error {
+func (n *nucleusSpokeController) removeWorkFinalizer(ctx context.Context, deploy *nucleusapiv1.Klusterlet) error {
 	copiedFinalizers := []string{}
 	for i := range deploy.Finalizers {
 		if deploy.Finalizers[i] == nucleusSpokeFinalizer {
@@ -386,7 +386,7 @@ func readKubuConfigFromSecret(secret *corev1.Secret, config spokeConfig) (string
 }
 
 // TODO also read CABundle from ExternalServerURLs and set into registration deployment
-func getServersFromSpokeCore(spokeCore *nucleusapiv1.SpokeCore) string {
+func getServersFromKlusterlet(spokeCore *nucleusapiv1.Klusterlet) string {
 	if spokeCore.Spec.ExternalServerURLs == nil {
 		return ""
 	}

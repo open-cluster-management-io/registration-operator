@@ -7,5 +7,5 @@ do
     cp $f ./manifests/hub/
 done
 
-cp $NUCLEUS_HUB_CRD_FILE ./deploy/nucleus-hub/crds/
-cp $NUCLEUS_SPOKE_CRD_FILE ./deploy/nucleus-spoke/crds/
+cp $CLUSTER_MANAGER_CRD_FILE ./deploy/clustermanager/crds/
+cp $MANAGED_CLUSTER_CRD_FILE ./deploy/klusterlet/crds/

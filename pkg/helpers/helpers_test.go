@@ -7,12 +7,13 @@ import (
 	"testing"
 	"time"
 
-	nucleusfake "github.com/open-cluster-management/api/client/nucleus/clientset/versioned/fake"
-	nucleusapiv1 "github.com/open-cluster-management/api/nucleus/v1"
+	nucleusfake "github.com/open-cluster-management/api/client/operator/clientset/versioned/fake"
+	nucleusapiv1 "github.com/open-cluster-management/api/operator/v1"
 	"github.com/openshift/library-go/pkg/operator/events/eventstesting"
 	operatorhelpers "github.com/openshift/library-go/pkg/operator/v1helpers"
 	admissionv1 "k8s.io/api/admissionregistration/v1"
 	fakeapiextensions "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/fake"
+
 	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -84,15 +85,15 @@ func TestUpdateStatusCondition(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			fakeClusterClient := nucleusfake.NewSimpleClientset(
-				&nucleusapiv1.HubCore{
+				&nucleusapiv1.ClusterManager{
 					ObjectMeta: metav1.ObjectMeta{Name: "testspokecluster"},
-					Status: nucleusapiv1.HubCoreStatus{
+					Status: nucleusapiv1.ClusterManagerStatus{
 						Conditions: c.startingConditions,
 					},
 				},
 				&nucleusapiv1.SpokeCore{
 					ObjectMeta: metav1.ObjectMeta{Name: "testspokecluster"},
-					Status: nucleusapiv1.SpokeCoreStatus{
+					Status: nucleusapiv1.KlusterletStatus{
 						Conditions: c.startingConditions,
 					},
 				},
@@ -100,7 +101,7 @@ func TestUpdateStatusCondition(t *testing.T) {
 
 			hubstatus, updated, err := UpdateNucleusHubStatus(
 				context.TODO(),
-				fakeClusterClient.NucleusV1().HubCores(),
+				fakeClusterClient.NucleusV1().ClusterManagers(),
 				"testspokecluster",
 				UpdateNucleusHubConditionFn(c.newCondition),
 			)

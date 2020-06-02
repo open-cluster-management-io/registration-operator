@@ -1,13 +1,13 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: system:open-cluster-management:{{ .SpokeCoreName }}-registration-agent
-  namespace: {{ .SpokeCoreNamespace }}
+  name: system:open-cluster-management:{{ .KlusterletName }}-registration-agent
+  namespace: {{ .KlusterletNamespace }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: system:open-cluster-management:{{ .SpokeCoreName }}-registration-agent
+  name: system:open-cluster-management:{{ .KlusterletName }}-registration-agent
 subjects:
   - kind: ServiceAccount
-    name: {{ .SpokeCoreName }}-registration-sa
-    namespace: {{ .SpokeCoreNamespace }}
+    name: {{ .KlusterletName }}-registration-sa
+    namespace: {{ .KlusterletNamespace }}

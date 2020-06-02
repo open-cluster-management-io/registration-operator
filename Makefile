@@ -54,8 +54,8 @@ verify-crds:
 verify: verify-crds
 
 update-csv: ensure-operator-sdk
-	$(OPERATOR_SDK) generate csv --crd-dir=deploy/nucleus-hub/crds --deploy-dir=deploy/nucleus-hub --output-dir=deploy/nucleus-hub/olm-catalog/nucleus-hub --operator-name=nucleus-hub --csv-version=0.1.0
-	$(OPERATOR_SDK) generate csv --crd-dir=deploy/nucleus-spoke/crds --deploy-dir=deploy/nucleus-spoke --output-dir=deploy/nucleus-spoke/olm-catalog/nucleus-spoke --operator-name=nucleus-spoke --csv-version=0.1.0
+	$(OPERATOR_SDK) generate csv --crd-dir=deploy/clustermanager/crds --deploy-dir=deploy/clustermanager --output-dir=deploy/clustermanager/olm-catalog/clustermanager --operator-name=clustermanager --csv-version=0.1.0
+	$(OPERATOR_SDK) generate csv --crd-dir=deploy/klusterlet/crds --deploy-dir=deploy/klusterlet --output-dir=deploy/klusterlet/olm-catalog/klusterlet --operator-name=klusterlet --csv-version=0.1.0
 
 munge-hub-csv:
 	mkdir -p munge-csv
@@ -80,20 +80,20 @@ install-olm: ensure-operator-sdk
 	$(KUBECTL) get ns open-cluster-management ; if [ $$? -ne 0 ] ; then $(KUBECTL) create ns open-cluster-management ; fi
 
 deploy-hub: install-olm munge-hub-csv
-	$(OPERATOR_SDK) run --olm --operator-namespace open-cluster-management --operator-version 0.1.0 --manifests deploy/nucleus-hub/olm-catalog/nucleus-hub --olm-namespace $(OLM_NAMESPACE)
-	sed -e "s,quay.io/open-cluster-management/registration,$(REGISTRATION_IMAGE)," deploy/nucleus-hub/crds/nucleus_open-cluster-management_hubcores.cr.yaml | $(KUBECTL) apply -f -
+	$(OPERATOR_SDK) run --olm --operator-namespace open-cluster-management --operator-version 0.1.0 --manifests deploy/clustermanager/olm-catalog/clustermanager --olm-namespace $(OLM_NAMESPACE)
+	sed -e "s,quay.io/open-cluster-management/registration,$(REGISTRATION_IMAGE)," deploy/clustermanager/crds/nucleus_open-cluster-management_clustermanagers.cr.yaml | $(KUBECTL) apply -f -
 
 clean-hub: ensure-operator-sdk
-	$(KUBECTL) delete -f deploy/nucleus-hub/crds/nucleus_open-cluster-management_hubcores.cr.yaml --ignore-not-found
-	$(OPERATOR_SDK) cleanup --olm --operator-namespace open-cluster-management --operator-version 0.1.0 --manifests deploy/nucleus-hub/olm-catalog/nucleus-hub --olm-namespace $(OLM_NAMESPACE)
+	$(KUBECTL) delete -f deploy/clustermanager/crds/nucleus_open-cluster-management_clustermanagers.cr.yaml --ignore-not-found
+	$(OPERATOR_SDK) cleanup --olm --operator-namespace open-cluster-management --operator-version 0.1.0 --manifests deploy/clustermanager/olm-catalog/clustermanager --olm-namespace $(OLM_NAMESPACE)
 
-cluster-ip: 
+cluster-ip:
   CLUSTER_IP?=$(shell $(KUBECTL) get svc kubernetes -n default -o jsonpath="{.spec.clusterIP}")
 
 bootstrap-secret: cluster-ip
 	$(KUBECTL) get ns open-cluster-management-spoke ; if [ $$? -ne 0 ] ; then $(KUBECTL) create ns open-cluster-management-spoke ; fi
 	cp $(KUBECONFIG) dev-kubeconfig
-	$(KUBECTL) config set clusters.kind-kind.server https://$(CLUSTER_IP) --kubeconfig dev-kubeconfig
+	$(KUBECTL) config set clusters.kind-hub.server https://$(CLUSTER_IP) --kubeconfig dev-kubeconfig
 	$(KUBECTL) delete secret bootstrap-hub-kubeconfig -n open-cluster-management-spoke --ignore-not-found
 	$(KUBECTL) create secret generic bootstrap-hub-kubeconfig --from-file=kubeconfig=dev-kubeconfig -n open-cluster-management-spoke
 
@@ -106,12 +106,12 @@ e2e-bootstrap-secret: cluster-ip
 	$(KUBECTL) create secret generic e2e-bootstrap-secret --from-file=kubeconfig=e2e-kubeconfig -n open-cluster-management
 
 deploy-spoke: install-olm munge-spoke-csv bootstrap-secret
-	$(OPERATOR_SDK) run --olm --operator-namespace open-cluster-management --operator-version 0.1.0 --manifests deploy/nucleus-spoke/olm-catalog/nucleus-spoke --olm-namespace $(OLM_NAMESPACE)
-	sed -e "s,quay.io/open-cluster-management/registration,$(REGISTRATION_IMAGE)," -e "s,quay.io/open-cluster-management/work,$(WORK_IMAGE)," deploy/nucleus-spoke/crds/nucleus_open-cluster-management_spokecores.cr.yaml | $(KUBECTL) apply -f -
+	$(OPERATOR_SDK) run --olm --operator-namespace open-cluster-management --operator-version 0.1.0 --manifests deploy/klusterlet/olm-catalog/klusterlet --olm-namespace $(OLM_NAMESPACE)
+	sed -e "s,quay.io/open-cluster-management/registration,$(REGISTRATION_IMAGE)," -e "s,quay.io/open-cluster-management/work,$(WORK_IMAGE)," deploy/nucleus-spoke/crds/nucleus_open-cluster-management_klusterlets.cr.yaml | $(KUBECTL) apply -f -
 
 clean-spoke: ensure-operator-sdk
-	$(KUBECTL) delete -f deploy/nucleus-spoke/crds/nucleus_open-cluster-management_spokecores.cr.yaml --ignore-not-found
-	$(OPERATOR_SDK) cleanup --olm --operator-namespace open-cluster-management --operator-version 0.1.0 --manifests deploy/nucleus-spoke/olm-catalog/nucleus-spoke --olm-namespace $(OLM_NAMESPACE)
+	$(KUBECTL) delete -f deploy/klusterlet/crds/nucleus_open-cluster-management_klusterlets.cr.yaml --ignore-not-found
+	$(OPERATOR_SDK) cleanup --olm --operator-namespace open-cluster-management --operator-version 0.1.0 --manifests deploy/klusterlet/olm-catalog/klusterlet --olm-namespace $(OLM_NAMESPACE)
 
 ensure-operator-sdk:
 ifeq "" "$(wildcard $(OPERATOR_SDK))"

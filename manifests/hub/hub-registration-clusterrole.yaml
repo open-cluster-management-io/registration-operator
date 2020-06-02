@@ -1,7 +1,11 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
+<<<<<<< 249448baea60bb7d36bf7ea1c432e54623de372d:manifests/hub/hub-registration-clusterrole.yaml
   name: system:open-cluster-management:{{ .HubCoreName }}-registration-controller
+=======
+  name: system:open-cluster-management:{{ .ClusterManagerName }}
+>>>>>>> Adopt new API updates for operator:manifests/hub/hub-clusterrole.yaml
 rules:
 # Allow hub to monitor and update status of csr
 - apiGroups: ["certificates.k8s.io"]

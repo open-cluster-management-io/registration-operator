@@ -15,7 +15,7 @@ import (
 
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
-	nucleusclient "github.com/open-cluster-management/api/client/nucleus/clientset/versioned"
+	nucleusclient "github.com/open-cluster-management/api/client/operator/clientset/versioned"
 )
 
 func TestIntegration(t *testing.T) {

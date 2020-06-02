@@ -23,10 +23,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 
-	nucleusv1client "github.com/open-cluster-management/api/client/nucleus/clientset/versioned/typed/nucleus/v1"
-	nucleusinformer "github.com/open-cluster-management/api/client/nucleus/informers/externalversions/nucleus/v1"
-	nucleuslister "github.com/open-cluster-management/api/client/nucleus/listers/nucleus/v1"
-	nucleusapiv1 "github.com/open-cluster-management/api/nucleus/v1"
+	nucleusv1client "github.com/open-cluster-management/api/client/operator/clientset/versioned/typed/operator/v1"
+	nucleusinformer "github.com/open-cluster-management/api/client/operator/informers/externalversions/operator/v1"
+	nucleuslister "github.com/open-cluster-management/api/client/operator/listers/operator/v1"
+	nucleusapiv1 "github.com/open-cluster-management/api/operator/v1"
 	"github.com/open-cluster-management/nucleus/pkg/helpers"
 	"github.com/open-cluster-management/nucleus/pkg/operators/hub/bindata"
 )
@@ -59,16 +59,16 @@ var (
 )
 
 const (
-	nucleusHubFinalizer         = "nucleus.open-cluster-management.io/hub-core-cleanup"
-	nucleusHubCoreNamespace     = "open-cluster-management-hub"
-	nucleusHubCoreWebhookSecret = "webhook-serving-cert"
-	hubCoreApplied              = "Applied"
-	hubCoreAvailable            = "Available"
+	nucleusHubFinalizer                = "nucleus.open-cluster-management.io/hub-core-cleanup"
+	nucleusClusterManagerNamespace     = "open-cluster-management-hub"
+	nucleusClusterManagerWebhookSecret = "webhook-serving-cert"
+	hubCoreApplied                     = "Applied"
+	hubCoreAvailable                   = "Available"
 )
 
 type nucleusHubController struct {
-	nucleusClient         nucleusv1client.HubCoreInterface
-	nucleusLister         nucleuslister.HubCoreLister
+	nucleusClient         nucleusv1client.ClusterManagerInterface
+	nucleusLister         nucleuslister.ClusterManagerLister
 	kubeClient            kubernetes.Interface
 	apiExtensionClient    apiextensionsclient.Interface
 	apiRegistrationClient apiregistrationclient.APIServicesGetter
@@ -80,8 +80,8 @@ func NewNucleusHubController(
 	kubeClient kubernetes.Interface,
 	apiExtensionClient apiextensionsclient.Interface,
 	apiRegistrationClient apiregistrationclient.APIServicesGetter,
-	nucleusClient nucleusv1client.HubCoreInterface,
-	nucleusInformer nucleusinformer.HubCoreInformer,
+	nucleusClient nucleusv1client.ClusterManagerInterface,
+	nucleusInformer nucleusinformer.ClusterManagerInformer,
 	recorder events.Recorder) factory.Controller {
 	controller := &nucleusHubController{
 		kubeClient:            kubeClient,
@@ -103,23 +103,23 @@ func NewNucleusHubController(
 
 // hubConfig is used to render the template of hub manifests
 type hubConfig struct {
-	HubCoreName                       string
-	HubCoreNamespace                  string
-	RegistrationImage                 string
-	HubCoreWebhookSecret              string
-	HubCoreWebhookRegistrationService string
-	RegistrationAPIServiceCABundle    string
-	RegistrationServingCert           string
-	RegistrationServingKey            string
+	ClusterManagerName                       string
+	ClusterManagerNamespace                  string
+	RegistrationImage                        string
+	ClusterManagerWebhookSecret              string
+	ClusterManagerWebhookRegistrationService string
+	RegistrationAPIServiceCABundle           string
+	RegistrationServingCert                  string
+	RegistrationServingKey                   string
 }
 
 func (n *nucleusHubController) sync(ctx context.Context, controllerContext factory.SyncContext) error {
 	hubCoreName := controllerContext.QueueKey()
-	klog.V(4).Infof("Reconciling HubCore %q", hubCoreName)
+	klog.V(4).Infof("Reconciling ClusterManager %q", hubCoreName)
 
 	hubCore, err := n.nucleusLister.Get(hubCoreName)
 	if errors.IsNotFound(err) {
-		// HubCore not found, could have been deleted, do nothing.
+		// ClusterManager not found, could have been deleted, do nothing.
 		return nil
 	}
 	if err != nil {
@@ -128,11 +128,11 @@ func (n *nucleusHubController) sync(ctx context.Context, controllerContext facto
 	hubCore = hubCore.DeepCopy()
 
 	config := hubConfig{
-		HubCoreName:                       hubCore.Name,
-		HubCoreNamespace:                  nucleusHubCoreNamespace,
-		RegistrationImage:                 hubCore.Spec.RegistrationImagePullSpec,
-		HubCoreWebhookSecret:              nucleusHubCoreWebhookSecret,
-		HubCoreWebhookRegistrationService: fmt.Sprintf("%s-registration-webhook", hubCore.Name),
+		ClusterManagerName:                       hubCore.Name,
+		ClusterManagerNamespace:                  nucleusClusterManagerNamespace,
+		RegistrationImage:                        hubCore.Spec.RegistrationImagePullSpec,
+		ClusterManagerWebhookSecret:              nucleusClusterManagerWebhookSecret,
+		ClusterManagerWebhookRegistrationService: fmt.Sprintf("%s-registration-webhook", hubCore.Name),
 	}
 
 	// Update finalizer at first
@@ -151,7 +151,7 @@ func (n *nucleusHubController) sync(ctx context.Context, controllerContext facto
 		}
 	}
 
-	// HubCore is deleting, we remove its related resources on hub
+	// ClusterManager is deleting, we remove its related resources on hub
 	if !hubCore.DeletionTimestamp.IsZero() {
 		if err := n.cleanUp(ctx, controllerContext, config); err != nil {
 			return err
@@ -160,7 +160,7 @@ func (n *nucleusHubController) sync(ctx context.Context, controllerContext facto
 	}
 
 	ca, cert, key, err := n.ensureServingCertAndCA(
-		ctx, config.HubCoreNamespace, config.HubCoreWebhookSecret, config.HubCoreWebhookRegistrationService)
+		ctx, config.ClusterManagerNamespace, config.ClusterManagerWebhookSecret, config.ClusterManagerWebhookRegistrationService)
 	if err != nil {
 		return err
 	}
@@ -207,14 +207,14 @@ func (n *nucleusHubController) sync(ctx context.Context, controllerContext facto
 		helpers.SetNucleusCondition(conditions, nucleusapiv1.StatusCondition{
 			Type:    hubCoreApplied,
 			Status:  metav1.ConditionTrue,
-			Reason:  "HubCoreApplied",
+			Reason:  "ClusterManagerApplied",
 			Message: "Components of hub core is applied",
 		})
 	} else {
 		helpers.SetNucleusCondition(conditions, nucleusapiv1.StatusCondition{
 			Type:    hubCoreApplied,
 			Status:  metav1.ConditionFalse,
-			Reason:  "HubCoreApplyFailed",
+			Reason:  "ClusterManagerApplyFailed",
 			Message: "Components of hub core fail to be applied",
 		})
 	}
@@ -230,7 +230,7 @@ func (n *nucleusHubController) sync(ctx context.Context, controllerContext facto
 	return operatorhelpers.NewMultiLineAggregate(errs)
 }
 
-func (n *nucleusHubController) removeWorkFinalizer(ctx context.Context, deploy *nucleusapiv1.HubCore) error {
+func (n *nucleusHubController) removeWorkFinalizer(ctx context.Context, deploy *nucleusapiv1.ClusterManager) error {
 	copiedFinalizers := []string{}
 	for i := range deploy.Finalizers {
 		if deploy.Finalizers[i] == nucleusHubFinalizer {

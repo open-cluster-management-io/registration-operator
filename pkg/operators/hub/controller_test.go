@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	fakenucleusclient "github.com/open-cluster-management/api/client/nucleus/clientset/versioned/fake"
-	nucleusinformers "github.com/open-cluster-management/api/client/nucleus/informers/externalversions"
-	nucleusapiv1 "github.com/open-cluster-management/api/nucleus/v1"
+	fakenucleusclient "github.com/open-cluster-management/api/client/operator/clientset/versioned/fake"
+	nucleusinformers "github.com/open-cluster-management/api/client/operator/informers/externalversions"
+	nucleusapiv1 "github.com/open-cluster-management/api/operator/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
@@ -53,29 +53,29 @@ func newFakeSyncContext(t *testing.T, key string) *fakeSyncContext {
 	}
 }
 
-func newHubCore(name string) *nucleusapiv1.HubCore {
-	return &nucleusapiv1.HubCore{
+func newClusterManager(name string) *nucleusapiv1.ClusterManager {
+	return &nucleusapiv1.ClusterManager{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:       name,
 			Finalizers: []string{"nucleus.open-cluster-management.io/hub-core-cleanup"},
 		},
-		Spec: nucleusapiv1.HubCoreSpec{
+		Spec: nucleusapiv1.ClusterManagerSpec{
 			RegistrationImagePullSpec: "testregistration",
 		},
 	}
 }
 
-func newTestController(hubcore *nucleusapiv1.HubCore) *testController {
+func newTestController(hubcore *nucleusapiv1.ClusterManager) *testController {
 	fakeNucleusClient := fakenucleusclient.NewSimpleClientset(hubcore)
 	nucleusInformers := nucleusinformers.NewSharedInformerFactory(fakeNucleusClient, 5*time.Minute)
 
 	hubController := &nucleusHubController{
-		nucleusClient:     fakeNucleusClient.NucleusV1().HubCores(),
-		nucleusLister:     nucleusInformers.Nucleus().V1().HubCores().Lister(),
+		nucleusClient:     fakeNucleusClient.OperatorV1().ClusterManagers(),
+		nucleusLister:     nucleusInformers.Operator().V1().ClusterManagers().Lister(),
 		currentGeneration: make([]int64, len(deploymentFiles)),
 	}
 
-	store := nucleusInformers.Nucleus().V1().HubCores().Informer().GetStore()
+	store := nucleusInformers.Nucleus().V1().ClusterManagers().Informer().GetStore()
 	store.Add(hubcore)
 
 	return &testController{
@@ -118,7 +118,7 @@ func assertEqualNumber(t *testing.T, actual, expected int) {
 }
 
 func assertCondition(t *testing.T, actual runtime.Object, expectedCondition string, expectedStatus metav1.ConditionStatus) {
-	hubCore := actual.(*nucleusapiv1.HubCore)
+	hubCore := actual.(*nucleusapiv1.ClusterManager)
 	conditions := hubCore.Status.Conditions
 	if len(conditions) != 1 {
 		t.Errorf("expected 1 condition but got: %#v", conditions)
@@ -142,7 +142,7 @@ func ensureNameNamespace(t *testing.T, actualName, actualNamespace, name, namesp
 	}
 }
 
-func ensureObject(t *testing.T, object runtime.Object, hubCore *nucleusapiv1.HubCore) {
+func ensureObject(t *testing.T, object runtime.Object, hubCore *nucleusapiv1.ClusterManager) {
 	access, err := meta.Accessor(object)
 	if err != nil {
 		t.Errorf("Unable to access objectmeta: %v", err)
@@ -150,7 +150,7 @@ func ensureObject(t *testing.T, object runtime.Object, hubCore *nucleusapiv1.Hub
 
 	switch o := object.(type) {
 	case *corev1.Namespace:
-		ensureNameNamespace(t, access.GetName(), "", nucleusHubCoreNamespace, "")
+		ensureNameNamespace(t, access.GetName(), "", nucleusClusterManagerNamespace, "")
 	case *appsv1.Deployment:
 		if hubCore.Spec.RegistrationImagePullSpec != o.Spec.Template.Spec.Containers[0].Image {
 			t.Errorf("Image does not match to the expected.")
@@ -160,7 +160,7 @@ func ensureObject(t *testing.T, object runtime.Object, hubCore *nucleusapiv1.Hub
 
 // TestSyncDeploy tests sync manifests of hub component
 func TestSyncDeploy(t *testing.T) {
-	hubCore := newHubCore("testhub")
+	hubCore := newClusterManager("testhub")
 	controller := newTestController(hubCore).withCRDObject().withKubeObject().withAPIServiceObject()
 	syncContext := newFakeSyncContext(t, "testhub")
 
@@ -214,7 +214,7 @@ func TestSyncDeploy(t *testing.T) {
 
 // TestSyncDelete test cleanup hub deploy
 func TestSyncDelete(t *testing.T) {
-	hubCore := newHubCore("testhub")
+	hubCore := newClusterManager("testhub")
 	now := metav1.Now()
 	hubCore.ObjectMeta.SetDeletionTimestamp(&now)
 	controller := newTestController(hubCore).withCRDObject().withKubeObject().withAPIServiceObject()
@@ -260,14 +260,14 @@ func TestSyncDelete(t *testing.T) {
 	for _, action := range deleteKubeActions {
 		switch action.Resource.Resource {
 		case "namespaces":
-			ensureNameNamespace(t, action.Name, "", nucleusHubCoreNamespace, "")
+			ensureNameNamespace(t, action.Name, "", nucleusClusterManagerNamespace, "")
 		}
 	}
 }
 
 // TestDeleteCRD test delete crds
 func TestDeleteCRD(t *testing.T) {
-	hubCore := newHubCore("testhub")
+	hubCore := newClusterManager("testhub")
 	now := metav1.Now()
 	hubCore.ObjectMeta.SetDeletionTimestamp(&now)
 	crd := &apiextensionsv1.CustomResourceDefinition{
@@ -301,7 +301,7 @@ func TestDeleteCRD(t *testing.T) {
 }
 
 func TestEnsureServingCertAndCA(t *testing.T) {
-	hubCore := newHubCore("testhub")
+	hubCore := newClusterManager("testhub")
 	controller := newTestController(hubCore).withCRDObject().withKubeObject().withAPIServiceObject()
 	ca, certificate, key, err := controller.controller.ensureServingCertAndCA(context.TODO(), "ns1", "kubeconfig", "webhook")
 	if err != nil {

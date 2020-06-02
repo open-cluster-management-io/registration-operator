@@ -10,8 +10,8 @@ import (
 
 	"github.com/openshift/library-go/pkg/controller/controllercmd"
 
-	nucleusclient "github.com/open-cluster-management/api/client/nucleus/clientset/versioned"
-	nucleusinformer "github.com/open-cluster-management/api/client/nucleus/informers/externalversions"
+	nucleusclient "github.com/open-cluster-management/api/client/operator/clientset/versioned"
+	nucleusinformer "github.com/open-cluster-management/api/client/operator/informers/externalversions"
 	"github.com/open-cluster-management/nucleus/pkg/operators/hub"
 	"github.com/open-cluster-management/nucleus/pkg/operators/spoke"
 )
@@ -43,8 +43,8 @@ func RunNucleusHubOperator(ctx context.Context, controllerContext *controllercmd
 		kubeClient,
 		apiExtensionClient,
 		apiRegistrationClient.ApiregistrationV1(),
-		nucleusClient.NucleusV1().HubCores(),
-		nucleusInformer.Nucleus().V1().HubCores(),
+		nucleusClient.OperatorV1().ClusterManagers(),
+		nucleusInformer.Operator().V1().ClusterManagers(),
 		controllerContext.EventRecorder)
 
 	go nucleusInformer.Start(ctx.Done())
@@ -70,8 +70,8 @@ func RunNucleusSpokeOperator(ctx context.Context, controllerContext *controllerc
 
 	spokeController := spoke.NewNucleusSpokeController(
 		kubeClient,
-		nucleusClient.NucleusV1().SpokeCores(),
-		nucleusInformer.Nucleus().V1().SpokeCores(),
+		nucleusClient.OperatorV1().Klusterlets(),
+		nucleusInformer.Operator().V1().Klusterlets(),
 		controllerContext.EventRecorder)
 
 	go nucleusInformer.Start(ctx.Done())
