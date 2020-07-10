@@ -4,8 +4,8 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
-CRD_FILES="./vendor/github.com/open-cluster-management/api/cluster/v1/*.crd.yaml
-./vendor/github.com/open-cluster-management/api/work/v1/*.crd.yaml
+HUB_CRD_FILES="./vendor/github.com/open-cluster-management/api/cluster/v1/*.crd.yaml
+./vendor/github.com/open-cluster-management/api/work/v1/0000_00_work.open-cluster-management.io_manifestworks.crd.yaml
 "
 
 CLUSTER_MANAGER_CRD_FILE="./vendor/github.com/open-cluster-management/api/operator/v1/0000_01_operator.open-cluster-management.io_clustermanagers.crd.yaml"

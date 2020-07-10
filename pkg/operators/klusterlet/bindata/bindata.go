@@ -287,6 +287,10 @@ kind: ServiceAccount
 metadata:
   name: {{ .KlusterletName }}-registration-sa
   namespace: {{ .KlusterletNamespace }}
+{{if .ImagePullSecret}}
+imagePullSecrets:
+- name: {{ .ImagePullSecret }}
+{{end}}
 `)
 
 func manifestsKlusterletKlusterletRegistrationServiceaccountYamlBytes() ([]byte, error) {
@@ -505,6 +509,10 @@ kind: ServiceAccount
 metadata:
   name: {{ .KlusterletName }}-work-sa
   namespace: {{ .KlusterletNamespace }}
+{{if .ImagePullSecret}}
+imagePullSecrets:
+- name: {{ .ImagePullSecret }}
+{{end}}
 `)
 
 func manifestsKlusterletKlusterletWorkServiceaccountYamlBytes() ([]byte, error) {

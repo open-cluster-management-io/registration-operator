@@ -113,6 +113,7 @@ type hubConfig struct {
 	RegistrationAPIServiceCABundle           string
 	RegistrationServingCert                  string
 	RegistrationServingKey                   string
+	ImagePullSecret                          string
 }
 
 func (n *clusterManagerController) sync(ctx context.Context, controllerContext factory.SyncContext) error {
@@ -135,6 +136,7 @@ func (n *clusterManagerController) sync(ctx context.Context, controllerContext f
 		RegistrationImage:                        clusterManager.Spec.RegistrationImagePullSpec,
 		ClusterManagerWebhookSecret:              clusterManagerWebhookSecret,
 		ClusterManagerWebhookRegistrationService: fmt.Sprintf("%s-registration-webhook", clusterManager.Name),
+		ImagePullSecret:                          clusterManager.Spec.ImagePullSecret,
 	}
 
 	// Update finalizer at first

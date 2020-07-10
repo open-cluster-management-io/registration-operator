@@ -2,7 +2,7 @@
 
 source "$(dirname "${BASH_SOURCE}")/init.sh"
 
-for f in $CRD_FILES
+for f in $HUB_CRD_FILES
 do
     cp $f ./manifests/cluster-manager/
 done

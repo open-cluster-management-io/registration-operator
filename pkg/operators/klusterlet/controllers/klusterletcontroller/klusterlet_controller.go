@@ -104,6 +104,7 @@ type klusterletConfig struct {
 	HubKubeConfigSecret       string
 	BootStrapKubeConfigSecret string
 	OperatorNamespace         string
+	ImagePullSecret           string
 }
 
 func (n *klusterletController) sync(ctx context.Context, controllerContext factory.SyncContext) error {
@@ -129,6 +130,7 @@ func (n *klusterletController) sync(ctx context.Context, controllerContext facto
 		HubKubeConfigSecret:       helpers.HubKubeConfigSecret,
 		ExternalServerURL:         getServersFromKlusterlet(klusterlet),
 		OperatorNamespace:         n.operatorNamespace,
+		ImagePullSecret:           klusterlet.Spec.ImagePullSecret,
 	}
 	// If namespace is not set, use the default namespace
 	if config.KlusterletNamespace == "" {
