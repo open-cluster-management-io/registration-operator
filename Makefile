@@ -136,8 +136,9 @@ test-e2e: deploy-hub deploy-spoke-operator run-e2e
 
 run-e2e:
 	go test -c ./test/e2e
-	./e2e.test -test.v -ginkgo.v
-
+	./e2e.test -ginkgo.v -registration-image=$(REGISTRATION_IMAGE) -work-image=$(WORK_IMAGE)
+	$(KUBECTL) get pods --all-namespaces
+	$(KUBECTL) get pods -n open-cluster-management-agent -oyaml
 clean-e2e:
 	$(RM) ./e2e.test
 

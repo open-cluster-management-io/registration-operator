@@ -1,9 +1,11 @@
 package e2e
 
 import (
+	"flag"
+	"testing"
+
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
-	"testing"
 )
 
 func TestE2E(t *testing.T) {
@@ -12,6 +14,14 @@ func TestE2E(t *testing.T) {
 }
 
 var t *Tester
+var registrationImage string
+var workImage string
+
+func init() {
+	flag.StringVar(&registrationImage, "registration-image", "quay.io/open-cluster-management/registration", "registration-image is the image of registraiton agent")
+	flag.StringVar(&workImage, "work-image", "quay.io/open-cluster-management/work", "work-image is the image of work agent")
+	flag.Parse()
+}
 
 // This suite is sensitive to the following environment variables:
 //
@@ -19,7 +29,7 @@ var t *Tester
 var _ = BeforeSuite(func() {
 	var err error
 
-	t, err = NewTester("")
+	t, err = NewTester("", registrationImage, workImage)
 	Expect(err).ToNot(HaveOccurred())
 
 	Eventually(func() error {

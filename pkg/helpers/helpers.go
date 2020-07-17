@@ -183,6 +183,29 @@ func UpdateKlusterletConditionFn(conds ...operatorapiv1.StatusCondition) UpdateK
 	}
 }
 
+// RemoveCRD removes crd, and check if crd resource is removed. Since the related cr is still being deleted,
+// it will check the crd existence after deletion, and only return nil when crd is not found.
+func RemoveCRD(ctx context.Context, apiExtensionClient apiextensionsclient.Interface, name string) error {
+	err := apiExtensionClient.ApiextensionsV1().CustomResourceDefinitions().Delete(
+		ctx, name, metav1.DeleteOptions{})
+	switch {
+	case errors.IsNotFound(err):
+		return nil
+	case err != nil:
+		return err
+	}
+
+	_, err = apiExtensionClient.ApiextensionsV1().CustomResourceDefinitions().Get(ctx, name, metav1.GetOptions{})
+	switch {
+	case errors.IsNotFound(err):
+		return nil
+	case err != nil:
+		return err
+	}
+
+	return fmt.Errorf("CRD %s is still being deleted", name)
+}
+
 func CleanUpStaticObject(
 	ctx context.Context,
 	client kubernetes.Interface,

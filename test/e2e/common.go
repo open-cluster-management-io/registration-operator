@@ -3,9 +3,12 @@ package e2e
 import (
 	"context"
 	"fmt"
-	"k8s.io/klog"
 	"os"
 	"time"
+
+	"k8s.io/klog"
+
+	"github.com/onsi/gomega"
 
 	clusterclient "github.com/open-cluster-management/api/client/cluster/clientset/versioned"
 	operatorclient "github.com/open-cluster-management/api/client/operator/clientset/versioned"
@@ -42,12 +45,14 @@ type Tester struct {
 	hubWebhookDeployment       string
 	operatorNamespace          string
 	klusterletOperator         string
+	registrationImage          string
+	workImage                  string
 }
 
 // kubeconfigPath is the path of kubeconfig file, will be get from env "KUBECONFIG" by default.
 // bootstrapHubSecret is the bootstrap hub kubeconfig secret, and the format is "namespace/secretName".
 // Default of bootstrapHubSecret is helpers.KlusterletDefaultNamespace/helpers.BootstrapHubKubeConfigSecret.
-func NewTester(kubeconfigPath string) (*Tester, error) {
+func NewTester(kubeconfigPath, registrationImage, workImage string) (*Tester, error) {
 	var err error
 	var tester = Tester{
 		EventuallyTimeout:          60 * time.Second, // seconds
@@ -58,6 +63,8 @@ func NewTester(kubeconfigPath string) (*Tester, error) {
 		hubWebhookDeployment:       "cluster-manager-registration-webhook",
 		operatorNamespace:          "open-cluster-management",
 		klusterletOperator:         "klusterlet",
+		registrationImage:          "quay.io/open-cluster-management/registration:latest",
+		workImage:                  "quay.io/open-cluster-management/work:latest",
 	}
 
 	if kubeconfigPath == "" {
@@ -134,8 +141,8 @@ func (t *Tester) CreateKlusterlet(name, clusterName, agentNamespace string) (*op
 			Name: name,
 		},
 		Spec: operatorapiv1.KlusterletSpec{
-			RegistrationImagePullSpec: "quay.io/open-cluster-management/registration",
-			WorkImagePullSpec:         "quay.io/open-cluster-management/work",
+			RegistrationImagePullSpec: t.registrationImage,
+			WorkImagePullSpec:         t.workImage,
 			ExternalServerURLs: []operatorapiv1.ServerURL{
 				{
 					URL: "https://localhost",
@@ -332,40 +339,38 @@ func (t *Tester) CreateWorkOfConfigMap(name, clusterName, configMapName, configM
 		Create(context.TODO(), manifestWork, metav1.CreateOptions{})
 }
 
-func (t *Tester) cleanKlusterletResources(klusterletName string) error {
+func (t *Tester) cleanKlusterletResources(klusterletName, clusterName string) error {
 	if klusterletName == "" {
 		return fmt.Errorf("the klusterlet name should not be null")
 	}
 
-	clusterName, err := t.GetClusterNameFromKlusterlet(klusterletName)
-	if err != nil {
-		return err
-	}
-
-	// clean the manifest works
-	manifestWorks, err := t.WorkClient.WorkV1().ManifestWorks(clusterName).
-		List(context.TODO(), metav1.ListOptions{})
-	if err != nil {
-		return err
-	}
-
-	for _, work := range manifestWorks.Items {
-		// ignore if failed to delete
-		_ = t.WorkClient.WorkV1().ManifestWorks(work.Namespace).
-			Delete(context.TODO(), work.Name, metav1.DeleteOptions{})
-	}
-
 	// clean the klusterlets
-	err = t.OperatorClient.OperatorV1().Klusterlets().Delete(context.TODO(), klusterletName, metav1.DeleteOptions{})
+	err := t.OperatorClient.OperatorV1().Klusterlets().Delete(context.TODO(), klusterletName, metav1.DeleteOptions{})
 	if err != nil {
 		return err
 	}
+
+	gomega.Eventually(func() bool {
+		_, err := t.OperatorClient.OperatorV1().Klusterlets().Get(context.TODO(), klusterletName, metav1.GetOptions{})
+		if errors.IsNotFound(err) {
+			return true
+		}
+		return false
+	}, t.EventuallyTimeout*5, t.EventuallyInterval*5).Should(gomega.BeTrue())
 
 	// clean the managed clusters
 	err = t.ClusterClient.ClusterV1().ManagedClusters().Delete(context.TODO(), clusterName, metav1.DeleteOptions{})
 	if err != nil {
 		return err
 	}
+
+	gomega.Eventually(func() bool {
+		_, err := t.ClusterClient.ClusterV1().ManagedClusters().Get(context.TODO(), clusterName, metav1.GetOptions{})
+		if errors.IsNotFound(err) {
+			return true
+		}
+		return false
+	}, t.EventuallyTimeout*5, t.EventuallyInterval*5).Should(gomega.BeTrue())
 
 	return nil
 }
