@@ -5,6 +5,7 @@ go 1.13
 require (
 	github.com/davecgh/go-spew v1.1.1
 	github.com/go-bindata/go-bindata v3.1.2+incompatible
+	github.com/gorilla/websocket v1.4.2 // indirect; required by spf13/cobra, after spf13/cobra has new release we can remove this
 	github.com/onsi/ginkgo v1.11.0
 	github.com/onsi/gomega v1.8.1
 	github.com/open-cluster-management/api v0.0.0-20200806152638-5caae08712f5
@@ -22,3 +23,6 @@ require (
 	k8s.io/kube-aggregator v0.18.3
 	sigs.k8s.io/controller-runtime v0.6.0
 )
+
+// this is required by openshift/library-go, after openshift/library-go update this lib, we can remove this
+replace github.com/opencontainers/runc => github.com/opencontainers/runc v1.0.0-rc10
