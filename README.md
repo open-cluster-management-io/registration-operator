@@ -2,6 +2,7 @@
 
 Minimum cluster registration and work
 
+
 # How to Deploy
 
 ## Deploy all-in-one deployment on kind
