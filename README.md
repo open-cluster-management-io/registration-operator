@@ -7,7 +7,7 @@ Minimum cluster registration and work
 ## Deploy all-in-one deployment on kind
 
 1. Create a kind cluster
-2. Deploy all compoenent on the kind cluster
+2. Deploy all component on the kind cluster
     ```
     export KIND_CLUSTER={kind cluster name}
     make deploy
@@ -31,7 +31,7 @@ Minimum cluster registration and work
 
 ## What is next
 
-After a successfull deployment, a `certificatesigningrequest` and a `managedcluster` will
+After a successful deployment, a `certificatesigningrequest` and a `managedcluster` will
 be created on the hub.
 
 ```
