@@ -1,0 +1,9 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: open-cluster-management:{{ .ClusterManagerName }}-work:webhook-user
+rules:
+# Allow user to create admission review
+- apiGroups: ["admission.work.open-cluster-management.io"]
+  resources: ["manifestworkvalidators"]
+  verbs: ["create"]

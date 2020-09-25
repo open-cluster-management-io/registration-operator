@@ -124,7 +124,7 @@ func TestSyncDeploy(t *testing.T) {
 	}
 
 	// Check if resources are created as expected
-	testinghelper.AssertEqualNumber(t, len(createKubeObjects), 21)
+	testinghelper.AssertEqualNumber(t, len(createKubeObjects), 25)
 	for _, object := range createKubeObjects {
 		ensureObject(t, object, clusterManager)
 	}
@@ -139,17 +139,6 @@ func TestSyncDeploy(t *testing.T) {
 	}
 	// Check if resources are created as expected
 	testinghelper.AssertEqualNumber(t, len(createCRDObjects), 4)
-
-	createAPIServiceObjects := []runtime.Object{}
-	apiServiceActions := controller.apiRegistrationClient.Actions()
-	for _, action := range apiServiceActions {
-		if action.GetVerb() == "create" {
-			object := action.(clienttesting.CreateActionImpl).Object
-			createAPIServiceObjects = append(createAPIServiceObjects, object)
-		}
-	}
-	// Check if resources are created as expected
-	testinghelper.AssertEqualNumber(t, len(createAPIServiceObjects), 2)
 
 	clusterManagerAction := controller.operatorClient.Actions()
 	testinghelper.AssertEqualNumber(t, len(clusterManagerAction), 2)
@@ -180,7 +169,7 @@ func TestSyncDelete(t *testing.T) {
 			deleteKubeActions = append(deleteKubeActions, deleteKubeAction)
 		}
 	}
-	testinghelper.AssertEqualNumber(t, len(deleteKubeActions), 18)
+	testinghelper.AssertEqualNumber(t, len(deleteKubeActions), 22)
 
 	deleteCRDActions := []clienttesting.DeleteActionImpl{}
 	crdActions := controller.apiExtensionClient.Actions()
@@ -192,17 +181,6 @@ func TestSyncDelete(t *testing.T) {
 	}
 	// Check if resources are created as expected
 	testinghelper.AssertEqualNumber(t, len(deleteCRDActions), 6)
-
-	deleteAPIServiceActions := []clienttesting.DeleteActionImpl{}
-	apiServiceActions := controller.apiRegistrationClient.Actions()
-	for _, action := range apiServiceActions {
-		if action.GetVerb() == "delete" {
-			deleteAPIServiceAction := action.(clienttesting.DeleteActionImpl)
-			deleteAPIServiceActions = append(deleteAPIServiceActions, deleteAPIServiceAction)
-		}
-	}
-	// Check if resources are created as expected
-	testinghelper.AssertEqualNumber(t, len(deleteAPIServiceActions), 2)
 
 	for _, action := range deleteKubeActions {
 		switch action.Resource.Resource {

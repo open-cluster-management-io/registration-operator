@@ -6,10 +6,11 @@ webhooks:
 - name: managedclustersetbindingvalidators.admission.cluster.open-cluster-management.io
   failurePolicy: Fail
   clientConfig:
+    caBundle: {{ .RegistrationAPIServiceCABundle }}
     service:
       # reach the webhook via the registered aggregated API
-      namespace: default
-      name: kubernetes
+      namespace: open-cluster-management-hub
+      name: cluster-manager-registration-webhook
       path: /apis/admission.cluster.open-cluster-management.io/v1/managedclustersetbindingvalidators
   rules:
   - operations:
