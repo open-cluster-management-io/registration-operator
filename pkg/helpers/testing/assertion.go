@@ -30,6 +30,23 @@ func AssertGet(t *testing.T, actual clienttesting.Action, group, version, resour
 	}
 }
 
+func AssertDelete(t *testing.T, actual clienttesting.Action, resource, namespace, name string) {
+	t.Helper()
+	deleteAction, ok := actual.(clienttesting.DeleteAction)
+	if !ok {
+		t.Error(spew.Sdump(actual))
+	}
+	if deleteAction.GetResource().Resource != resource {
+		t.Error(spew.Sdump(actual))
+	}
+	if deleteAction.GetNamespace() != namespace {
+		t.Error(spew.Sdump(actual))
+	}
+	if deleteAction.GetName() != name {
+		t.Error(spew.Sdump(actual))
+	}
+}
+
 func NamedCondition(name, reason string, status metav1.ConditionStatus) opratorapiv1.StatusCondition {
 	return opratorapiv1.StatusCondition{Type: name, Status: status, Reason: reason}
 }

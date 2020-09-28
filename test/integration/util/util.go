@@ -57,7 +57,6 @@ func (r *IntegrationTestEventRecorder) Shutdown() {
 func HasCondition(conditions []operatorapiv1.StatusCondition, expectedType, expectedReason string, expectedStatus metav1.ConditionStatus) bool {
 	found := false
 	for _, condition := range conditions {
-		fmt.Printf(">>> %v \n", condition)
 		if condition.Type != expectedType {
 			continue
 		}
