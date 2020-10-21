@@ -42,8 +42,7 @@ func NewClusterManagerStatusController(
 	}
 
 	return factory.New().WithSync(controller.sync).
-		WithInformersQueueKeyFunc(
-			helpers.ClusterManagerDeploymentQueueKeyFunc(controller.clusterManagerLister), deploymentInformer.Informer()).
+		WithFilteredEventsInformersQueueKeyFunc(helpers.ClusterManagerQueueKeyFunc(controller.clusterManagerLister), helpers.ClusterManagerDeploymentEventFilter, deploymentInformer.Informer()).
 		WithInformersQueueKeyFunc(func(obj runtime.Object) string {
 			accessor, _ := meta.Accessor(obj)
 			return accessor.GetName()

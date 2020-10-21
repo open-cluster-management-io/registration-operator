@@ -24,19 +24,35 @@ const (
 	ClusterManagerNamespace = "open-cluster-management-hub"
 )
 
-func KlusterletSecretQueueKeyFunc(klusterletLister operatorlister.KlusterletLister) factory.ObjectQueueKeyFunc {
+func KlusterlsetSecretEventFilter(obj interface{}) bool {
+	accessor, _ := meta.Accessor(obj)
+	name := accessor.GetName()
+	return name == HubKubeConfig || name == BootstrapHubKubeConfig
+}
+
+func KlusterletDeploymentEventFilter(obj interface{}) bool {
+	accessor, _ := meta.Accessor(obj)
+	name := accessor.GetName()
+	return strings.HasSuffix(name, "registration-agent") || strings.HasSuffix(name, "work-agent")
+}
+
+func ClusterManagerDeploymentEventFilter(obj interface{}) bool {
+	accessor, _ := meta.Accessor(obj)
+	name := accessor.GetName()
+	namespace := accessor.GetNamespace()
+	if namespace != ClusterManagerNamespace {
+		return false
+	}
+	if strings.HasSuffix(name, "registration-controller") || strings.HasSuffix(name, "work-controller") {
+		return true
+	}
+	return false
+}
+
+func KlusterletQueueKeyFunc(klusterletLister operatorlister.KlusterletLister) factory.ObjectQueueKeyFunc {
 	return func(obj runtime.Object) string {
 		accessor, _ := meta.Accessor(obj)
 		namespace := accessor.GetNamespace()
-		name := accessor.GetName()
-		interestedObjectFound := false
-		if name == HubKubeConfig || name == BootstrapHubKubeConfig {
-			interestedObjectFound = true
-		}
-		if !interestedObjectFound {
-			return ""
-		}
-
 		klusterlets, err := klusterletLister.List(labels.Everything())
 		if err != nil {
 			return ""
@@ -50,48 +66,8 @@ func KlusterletSecretQueueKeyFunc(klusterletLister operatorlister.KlusterletList
 	}
 }
 
-func KlusterletDeploymentQueueKeyFunc(klusterletLister operatorlister.KlusterletLister) factory.ObjectQueueKeyFunc {
+func ClusterManagerQueueKeyFunc(clusterManagerLister operatorlister.ClusterManagerLister) factory.ObjectQueueKeyFunc {
 	return func(obj runtime.Object) string {
-		accessor, _ := meta.Accessor(obj)
-		namespace := accessor.GetNamespace()
-		name := accessor.GetName()
-		interestedObjectFound := false
-		if strings.HasSuffix(name, "registration-agent") || strings.HasSuffix(name, "work-agent") {
-			interestedObjectFound = true
-		}
-		if !interestedObjectFound {
-			return ""
-		}
-
-		klusterlets, err := klusterletLister.List(labels.Everything())
-		if err != nil {
-			return ""
-		}
-
-		if klusterlet := FindKlusterletByNamespace(klusterlets, namespace); klusterlet != nil {
-			return klusterlet.Name
-		}
-
-		return ""
-	}
-}
-
-func ClusterManagerDeploymentQueueKeyFunc(clusterManagerLister operatorlister.ClusterManagerLister) factory.ObjectQueueKeyFunc {
-	return func(obj runtime.Object) string {
-		accessor, _ := meta.Accessor(obj)
-		namespace := accessor.GetNamespace()
-		name := accessor.GetName()
-		interestedObjectFound := false
-		if namespace != ClusterManagerNamespace {
-			return ""
-		}
-		if strings.HasSuffix(name, "registration-controller") || strings.HasSuffix(name, "work-controller") {
-			interestedObjectFound = true
-		}
-		if !interestedObjectFound {
-			return ""
-		}
-
 		clustermanagers, err := clusterManagerLister.List(labels.Everything())
 		if err != nil {
 			return ""

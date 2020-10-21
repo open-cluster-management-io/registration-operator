@@ -60,8 +60,8 @@ func NewKlusterletStatusController(
 		klusterletLister: klusterletInformer.Lister(),
 	}
 	return factory.New().WithSync(controller.sync).
-		WithInformersQueueKeyFunc(helpers.KlusterletSecretQueueKeyFunc(controller.klusterletLister), secretInformer.Informer()).
-		WithInformersQueueKeyFunc(helpers.KlusterletDeploymentQueueKeyFunc(controller.klusterletLister), deploymentInformer.Informer()).
+		WithFilteredEventsInformersQueueKeyFunc(helpers.KlusterletQueueKeyFunc(controller.klusterletLister), helpers.KlusterlsetSecretEventFilter, secretInformer.Informer()).
+		WithFilteredEventsInformersQueueKeyFunc(helpers.KlusterletQueueKeyFunc(controller.klusterletLister), helpers.KlusterletDeploymentEventFilter, deploymentInformer.Informer()).
 		WithInformersQueueKeyFunc(func(obj runtime.Object) string {
 			accessor, _ := meta.Accessor(obj)
 			return accessor.GetName()

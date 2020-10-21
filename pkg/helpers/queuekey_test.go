@@ -51,34 +51,38 @@ func newClusterManager(name string) *operatorapiv1.ClusterManager {
 
 func TestKlusterletSecretQueueKeyFunc(t *testing.T) {
 	cases := []struct {
-		name        string
-		object      runtime.Object
-		klusterlet  *operatorapiv1.Klusterlet
-		expectedKey string
+		name             string
+		object           runtime.Object
+		klusterlet       *operatorapiv1.Klusterlet
+		expectedFiltered bool
+		expectedKey      string
 	}{
 		{
-			name:        "key by hub config secret",
-			object:      newSecret(HubKubeConfig, "test"),
-			klusterlet:  newKlusterlet("testklusterlet", "test", ""),
-			expectedKey: "testklusterlet",
+			name:             "key by hub config secret",
+			object:           newSecret(HubKubeConfig, "test"),
+			klusterlet:       newKlusterlet("testklusterlet", "test", ""),
+			expectedFiltered: true,
+			expectedKey:      "testklusterlet",
 		},
 		{
-			name:        "key by bootstrap secret",
-			object:      newSecret(BootstrapHubKubeConfig, "test"),
-			klusterlet:  newKlusterlet("testklusterlet", "test", ""),
-			expectedKey: "testklusterlet",
+			name:             "key by bootstrap secret",
+			object:           newSecret(BootstrapHubKubeConfig, "test"),
+			klusterlet:       newKlusterlet("testklusterlet", "test", ""),
+			expectedFiltered: true,
+			expectedKey:      "testklusterlet",
 		},
 		{
-			name:        "key by wrong secret",
-			object:      newSecret("dummy", "test"),
-			klusterlet:  newKlusterlet("testklusterlet", "test", ""),
-			expectedKey: "",
+			name:             "key by wrong secret",
+			object:           newSecret("dummy", "test"),
+			klusterlet:       newKlusterlet("testklusterlet", "test", ""),
+			expectedFiltered: false,
 		},
 		{
-			name:        "key by klusterlet with empty namespace",
-			object:      newSecret(BootstrapHubKubeConfig, KlusterletDefaultNamespace),
-			klusterlet:  newKlusterlet("testklusterlet", "", ""),
-			expectedKey: "testklusterlet",
+			name:             "key by klusterlet with empty namespace",
+			object:           newSecret(BootstrapHubKubeConfig, KlusterletDefaultNamespace),
+			klusterlet:       newKlusterlet("testklusterlet", "", ""),
+			expectedKey:      "testklusterlet",
+			expectedFiltered: true,
 		},
 	}
 
@@ -88,10 +92,16 @@ func TestKlusterletSecretQueueKeyFunc(t *testing.T) {
 			operatorInformers := operatorinformers.NewSharedInformerFactory(fakeOperatorClient, 5*time.Minute)
 			store := operatorInformers.Operator().V1().Klusterlets().Informer().GetStore()
 			store.Add(c.klusterlet)
-			keyFunc := KlusterletSecretQueueKeyFunc(operatorInformers.Operator().V1().Klusterlets().Lister())
-			actualKey := keyFunc(c.object)
-			if actualKey != c.expectedKey {
-				t.Errorf("Queued key is not correct: actual %s, expected %s", actualKey, c.expectedKey)
+			keyFunc := KlusterletQueueKeyFunc(operatorInformers.Operator().V1().Klusterlets().Lister())
+			if KlusterlsetSecretEventFilter(c.object) != c.expectedFiltered {
+				t.Errorf("Queued key should be filtered")
+				return
+			}
+			if c.expectedFiltered {
+				actualKey := keyFunc(c.object)
+				if actualKey != c.expectedKey {
+					t.Errorf("Queued key is not correct: actual %s, expected %s", actualKey, c.expectedKey)
+				}
 			}
 		})
 	}
@@ -99,34 +109,39 @@ func TestKlusterletSecretQueueKeyFunc(t *testing.T) {
 
 func TestKlusterletDeploymentQueueKeyFunc(t *testing.T) {
 	cases := []struct {
-		name        string
-		object      runtime.Object
-		klusterlet  *operatorapiv1.Klusterlet
-		expectedKey string
+		name             string
+		object           runtime.Object
+		klusterlet       *operatorapiv1.Klusterlet
+		expectedFiltered bool
+		expectedKey      string
 	}{
 		{
-			name:        "key by work agent",
-			object:      newDeployment("testklusterlet-work-agent", "test", 0),
-			klusterlet:  newKlusterlet("testklusterlet", "test", ""),
-			expectedKey: "testklusterlet",
+			name:             "key by work agent",
+			object:           newDeployment("testklusterlet-work-agent", "test", 0),
+			klusterlet:       newKlusterlet("testklusterlet", "test", ""),
+			expectedFiltered: true,
+			expectedKey:      "testklusterlet",
 		},
 		{
-			name:        "key by registrartion agent",
-			object:      newDeployment("testklusterlet-registration-agent", "test", 0),
-			klusterlet:  newKlusterlet("testklusterlet", "test", ""),
-			expectedKey: "testklusterlet",
+			name:             "key by registrartion agent",
+			object:           newDeployment("testklusterlet-registration-agent", "test", 0),
+			klusterlet:       newKlusterlet("testklusterlet", "test", ""),
+			expectedFiltered: true,
+			expectedKey:      "testklusterlet",
 		},
 		{
-			name:        "key by wrong deployment",
-			object:      newDeployment("dummy", "test", 0),
-			klusterlet:  newKlusterlet("testklusterlet", "test", ""),
-			expectedKey: "",
+			name:             "key by wrong deployment",
+			object:           newDeployment("dummy", "test", 0),
+			klusterlet:       newKlusterlet("testklusterlet", "test", ""),
+			expectedFiltered: false,
+			expectedKey:      "",
 		},
 		{
-			name:        "key by klusterlet with empty namespace",
-			object:      newDeployment("testklusterlet-work-agent", KlusterletDefaultNamespace, 0),
-			klusterlet:  newKlusterlet("testklusterlet", "", ""),
-			expectedKey: "testklusterlet",
+			name:             "key by klusterlet with empty namespace",
+			object:           newDeployment("testklusterlet-work-agent", KlusterletDefaultNamespace, 0),
+			klusterlet:       newKlusterlet("testklusterlet", "", ""),
+			expectedFiltered: true,
+			expectedKey:      "testklusterlet",
 		},
 	}
 
@@ -136,10 +151,16 @@ func TestKlusterletDeploymentQueueKeyFunc(t *testing.T) {
 			operatorInformers := operatorinformers.NewSharedInformerFactory(fakeOperatorClient, 5*time.Minute)
 			store := operatorInformers.Operator().V1().Klusterlets().Informer().GetStore()
 			store.Add(c.klusterlet)
-			keyFunc := KlusterletDeploymentQueueKeyFunc(operatorInformers.Operator().V1().Klusterlets().Lister())
-			actualKey := keyFunc(c.object)
-			if actualKey != c.expectedKey {
-				t.Errorf("Queued key is not correct: actual %s, expected %s", actualKey, c.expectedKey)
+			if KlusterletDeploymentEventFilter(c.object) != c.expectedFiltered {
+				t.Errorf("Queued key should be filtered")
+				return
+			}
+			if c.expectedFiltered {
+				keyFunc := KlusterletQueueKeyFunc(operatorInformers.Operator().V1().Klusterlets().Lister())
+				actualKey := keyFunc(c.object)
+				if actualKey != c.expectedKey {
+					t.Errorf("Queued key is not correct: actual %s, expected %s", actualKey, c.expectedKey)
+				}
 			}
 		})
 	}
@@ -147,34 +168,39 @@ func TestKlusterletDeploymentQueueKeyFunc(t *testing.T) {
 
 func TestClusterManagerDeploymentQueueKeyFunc(t *testing.T) {
 	cases := []struct {
-		name           string
-		object         runtime.Object
-		clusterManager *operatorapiv1.ClusterManager
-		expectedKey    string
+		name             string
+		object           runtime.Object
+		clusterManager   *operatorapiv1.ClusterManager
+		expectedFiltered bool
+		expectedKey      string
 	}{
 		{
-			name:           "key by work controller",
-			object:         newDeployment("testhub-work-controller", ClusterManagerNamespace, 0),
-			clusterManager: newClusterManager("testhub"),
-			expectedKey:    "testhub",
+			name:             "key by work controller",
+			object:           newDeployment("testhub-work-controller", ClusterManagerNamespace, 0),
+			clusterManager:   newClusterManager("testhub"),
+			expectedFiltered: true,
+			expectedKey:      "testhub",
 		},
 		{
-			name:           "key by registrartion controller",
-			object:         newDeployment("testhub-registration-controller", ClusterManagerNamespace, 0),
-			clusterManager: newClusterManager("testhub"),
-			expectedKey:    "testhub",
+			name:             "key by registrartion controller",
+			object:           newDeployment("testhub-registration-controller", ClusterManagerNamespace, 0),
+			clusterManager:   newClusterManager("testhub"),
+			expectedFiltered: true,
+			expectedKey:      "testhub",
 		},
 		{
-			name:           "key by wrong deployment",
-			object:         newDeployment("dummy", "test", 0),
-			clusterManager: newClusterManager("testhub"),
-			expectedKey:    "",
+			name:             "key by wrong deployment",
+			object:           newDeployment("dummy", "test", 0),
+			clusterManager:   newClusterManager("testhub"),
+			expectedFiltered: false,
+			expectedKey:      "",
 		},
 		{
-			name:           "key by wrong namespace",
-			object:         newDeployment("testklusterlet-registration-controller", "test", 0),
-			clusterManager: newClusterManager("testhub"),
-			expectedKey:    "",
+			name:             "key by wrong namespace",
+			object:           newDeployment("testklusterlet-registration-controller", "test", 0),
+			clusterManager:   newClusterManager("testhub"),
+			expectedFiltered: false,
+			expectedKey:      "",
 		},
 	}
 
@@ -184,10 +210,15 @@ func TestClusterManagerDeploymentQueueKeyFunc(t *testing.T) {
 			operatorInformers := operatorinformers.NewSharedInformerFactory(fakeOperatorClient, 5*time.Minute)
 			store := operatorInformers.Operator().V1().ClusterManagers().Informer().GetStore()
 			store.Add(c.clusterManager)
-			keyFunc := ClusterManagerDeploymentQueueKeyFunc(operatorInformers.Operator().V1().ClusterManagers().Lister())
-			actualKey := keyFunc(c.object)
-			if actualKey != c.expectedKey {
-				t.Errorf("Queued key is not correct: actual %s, expected %s", actualKey, c.expectedKey)
+			if ClusterManagerDeploymentEventFilter(c.object) != c.expectedFiltered {
+				t.Errorf("Queued key should be filtered")
+			}
+			if c.expectedFiltered {
+				keyFunc := ClusterManagerQueueKeyFunc(operatorInformers.Operator().V1().ClusterManagers().Lister())
+				actualKey := keyFunc(c.object)
+				if actualKey != c.expectedKey {
+					t.Errorf("Queued key is not correct: actual %s, expected %s", actualKey, c.expectedKey)
+				}
 			}
 		})
 	}
