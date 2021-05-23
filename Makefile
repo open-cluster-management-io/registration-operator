@@ -162,7 +162,7 @@ apply-spoke-cr:
 
 apply-spoke-cr-kind:
 	$(KUBECTL) config use-context kind-$(MANAGED_CLUSTER)
-	$(KUBECTL) apply -f deploy/klusterlet/config/samples/operator_open-cluster-management_klusterlets.cr.yaml
+	$(SED_CMD) -e "s,cluster1,$(MANAGED_CLUSTER)," deploy/klusterlet/config/samples/operator_open-cluster-management_klusterlets.cr.yaml | $(KUBECTL) apply -f -
 
 clean-spoke: ensure-operator-sdk
 	$(KUBECTL) delete -f deploy/klusterlet/config/samples/operator_open-cluster-management_klusterlets.cr.yaml --ignore-not-found
