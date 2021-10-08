@@ -1,6 +1,7 @@
 package certrotation
 
 import (
+	"context"
 	"crypto/x509"
 	"fmt"
 	"reflect"
@@ -44,7 +45,7 @@ func (c CABundleRotation) EnsureConfigMapCABundle(signingCertKeyPair *crypto.CA)
 	}
 	if originalCABundleConfigMap == nil || originalCABundleConfigMap.Data == nil || !equality.Semantic.DeepEqual(originalCABundleConfigMap.Data, caBundleConfigMap.Data) {
 		c.EventRecorder.Eventf("CABundleUpdateRequired", "%q in %q requires update", c.Name, c.Namespace)
-		actualCABundleConfigMap, _, err := resourceapply.ApplyConfigMap(c.Client, c.EventRecorder, caBundleConfigMap)
+		actualCABundleConfigMap, _, err := resourceapply.ApplyConfigMap(context.Background(), c.Client, c.EventRecorder, caBundleConfigMap)
 		if err != nil {
 			return nil, err
 		}

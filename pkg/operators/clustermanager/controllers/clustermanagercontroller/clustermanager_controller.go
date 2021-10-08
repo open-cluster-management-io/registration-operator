@@ -211,7 +211,7 @@ func (n *clusterManagerController) sync(ctx context.Context, controllerContext f
 	config.WorkAPIServiceCABundle = encodedCaBundle
 
 	// Apply static files
-	resourceResults := helpers.ApplyDirectly(
+	resourceResults := helpers.ApplyDirectly(ctx,
 		n.kubeClient,
 		n.apiExtensionClient,
 		n.apiRegistrationClient,
@@ -235,7 +235,7 @@ func (n *clusterManagerController) sync(ctx context.Context, controllerContext f
 	currentGenerations := []operatorapiv1.GenerationStatus{}
 	// Render deployment manifest and apply
 	for _, file := range deploymentFiles {
-		currentGeneration, err := helpers.ApplyDeployment(
+		currentGeneration, err := helpers.ApplyDeployment(ctx,
 			n.kubeClient,
 			clusterManager.Status.Generations,
 			clusterManager.Spec.NodePlacement,

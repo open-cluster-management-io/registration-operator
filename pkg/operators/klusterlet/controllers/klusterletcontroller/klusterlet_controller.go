@@ -193,7 +193,7 @@ func (n *klusterletController) sync(ctx context.Context, controllerContext facto
 		}
 
 		// Sync pull secret
-		_, _, err = resourceapply.SyncSecret(
+		_, _, err = resourceapply.SyncSecret(ctx,
 			n.kubeClient.CoreV1(),
 			controllerContext.Recorder(),
 			n.operatorNamespace,
@@ -221,7 +221,7 @@ func (n *klusterletController) sync(ctx context.Context, controllerContext facto
 	// If kube version is less than 1.12, deploy static resource for kube 1.11 at first
 	// TODO remove this when we do not support kube 1.11 any longer
 	if cnt, err := n.kubeVersion.Compare("v1.12.0"); err == nil && cnt < 0 {
-		resourceResult := resourceapply.ApplyDirectly(
+		resourceResult := resourceapply.ApplyDirectly(ctx,
 			resourceapply.NewKubeClientHolder(n.kubeClient),
 			controllerContext.Recorder(),
 			func(name string) ([]byte, error) {
@@ -249,7 +249,7 @@ func (n *klusterletController) sync(ctx context.Context, controllerContext facto
 		appliedStaticFiles = append(crdV1StaticFiles, staticResourceFiles...)
 	}
 
-	resourceResults := resourceapply.ApplyDirectly(
+	resourceResults := resourceapply.ApplyDirectly(ctx,
 		resourceapply.NewKubeClientHolder(n.kubeClient).WithAPIExtensionsClient(n.apiExtensionClient),
 		controllerContext.Recorder(),
 		func(name string) ([]byte, error) {
@@ -306,7 +306,7 @@ func (n *klusterletController) sync(ctx context.Context, controllerContext facto
 	}
 
 	// Deploy registration agent
-	registrationGeneration, err := helpers.ApplyDeployment(
+	registrationGeneration, err := helpers.ApplyDeployment(ctx,
 		n.kubeClient,
 		klusterlet.Status.Generations,
 		klusterlet.Spec.NodePlacement,
@@ -336,7 +336,7 @@ func (n *klusterletController) sync(ctx context.Context, controllerContext facto
 	}
 
 	// Deploy work agent
-	workGeneration, err := helpers.ApplyDeployment(
+	workGeneration, err := helpers.ApplyDeployment(ctx,
 		n.kubeClient,
 		klusterlet.Status.Generations,
 		klusterlet.Spec.NodePlacement,

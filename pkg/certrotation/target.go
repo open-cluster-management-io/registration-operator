@@ -1,6 +1,7 @@
 package certrotation
 
 import (
+	"context"
 	"crypto/x509"
 	"fmt"
 	"time"
@@ -54,7 +55,7 @@ func (c TargetRotation) EnsureTargetCertKeyPair(signingCertKeyPair *crypto.CA, c
 		return err
 	}
 
-	if _, _, err = resourceapply.ApplySecret(c.Client, c.EventRecorder, targetCertKeyPairSecret); err != nil {
+	if _, _, err = resourceapply.ApplySecret(context.Background(), c.Client, c.EventRecorder, targetCertKeyPairSecret); err != nil {
 		return err
 	}
 	return nil

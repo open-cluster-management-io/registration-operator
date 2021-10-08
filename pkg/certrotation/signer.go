@@ -2,6 +2,7 @@ package certrotation
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"time"
 
@@ -46,7 +47,7 @@ func (c SigningRotation) EnsureSigningCertKeyPair() (*crypto.CA, error) {
 			return nil, err
 		}
 
-		actualSigningCertKeyPairSecret, _, err := resourceapply.ApplySecret(c.Client, c.EventRecorder, signingCertKeyPairSecret)
+		actualSigningCertKeyPairSecret, _, err := resourceapply.ApplySecret(context.Background(), c.Client, c.EventRecorder, signingCertKeyPairSecret)
 		if err != nil {
 			return nil, err
 		}

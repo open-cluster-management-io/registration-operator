@@ -262,6 +262,7 @@ func ApplyMutatingWebhookConfiguration(
 }
 
 func ApplyDeployment(
+	ctx context.Context,
 	client kubernetes.Interface,
 	generationStatuses []operatorapiv1.GenerationStatus,
 	nodePlacement operatorapiv1.NodePlacement,
@@ -285,7 +286,7 @@ func ApplyDeployment(
 	deployment.(*appsv1.Deployment).Spec.Template.Spec.NodeSelector = nodePlacement.NodeSelector
 	deployment.(*appsv1.Deployment).Spec.Template.Spec.Tolerations = nodePlacement.Tolerations
 
-	updatedDeployment, updated, err := resourceapply.ApplyDeployment(
+	updatedDeployment, updated, err := resourceapply.ApplyDeployment(ctx,
 		client.AppsV1(),
 		recorder,
 		deployment.(*appsv1.Deployment), generationStatus.LastGeneration)
@@ -301,6 +302,7 @@ func ApplyDeployment(
 }
 
 func ApplyDirectly(
+	ctx context.Context,
 	client kubernetes.Interface,
 	apiExtensionClient apiextensionsclient.Interface,
 	apiRegistrationClient apiregistrationclient.APIServicesGetter,
@@ -332,7 +334,7 @@ func ApplyDirectly(
 			result.Result, result.Changed, result.Error = ApplyMutatingWebhookConfiguration(
 				client.AdmissionregistrationV1(), t)
 		case *apiregistrationv1.APIService:
-			result.Result, result.Changed, result.Error = resourceapply.ApplyAPIService(apiRegistrationClient, recorder, t)
+			result.Result, result.Changed, result.Error = resourceapply.ApplyAPIService(ctx, apiRegistrationClient, recorder, t)
 		default:
 			genericApplyFiles = append(genericApplyFiles, file)
 		}
@@ -340,6 +342,7 @@ func ApplyDirectly(
 
 	clientHolder := resourceapply.NewKubeClientHolder(client).WithAPIExtensionsClient(apiExtensionClient)
 	applyResults := resourceapply.ApplyDirectly(
+		ctx,
 		clientHolder,
 		recorder,
 		manifests,

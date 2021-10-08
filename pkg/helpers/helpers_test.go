@@ -347,7 +347,7 @@ func TestApplyDirectly(t *testing.T) {
 			fakeKubeClient := fakekube.NewSimpleClientset()
 			fakeResgistrationClient := fakeapiregistration.NewSimpleClientset()
 			fakeExtensionClient := fakeapiextensions.NewSimpleClientset()
-			results := ApplyDirectly(
+			results := ApplyDirectly(context.TODO(),
 				fakeKubeClient, fakeExtensionClient, fakeResgistrationClient.ApiregistrationV1(),
 				eventstesting.NewTestingEventRecorder(t),
 				func(name string) ([]byte, error) {
@@ -735,7 +735,7 @@ func TestApplyDeployment(t *testing.T) {
 	for _, c := range testcases {
 		t.Run(c.name, func(t *testing.T) {
 			fakeKubeClient := fakekube.NewSimpleClientset()
-			_, err := ApplyDeployment(
+			_, err := ApplyDeployment(context.TODO(),
 				fakeKubeClient, []operatorapiv1.GenerationStatus{}, c.nodePlacement,
 				func(name string) ([]byte, error) {
 					return json.Marshal(newDeploymentUnstructured(c.deploymentName, c.deploymentNamespace))

@@ -2,25 +2,23 @@ module open-cluster-management.io/registration-operator
 
 go 1.16
 
-replace github.com/googleapis/gnostic => github.com/googleapis/gnostic v0.4.1 // ensure compatible between controller-runtime and kube-openapi
-
 require (
 	github.com/davecgh/go-spew v1.1.1
-	github.com/onsi/ginkgo v1.14.0
-	github.com/onsi/gomega v1.10.1
-	github.com/openshift/api v0.0.0-20210331193751-3acddb19d360
-	github.com/openshift/build-machinery-go v0.0.0-20210209125900-0da259a2c359
-	github.com/openshift/library-go v0.0.0-20210406144447-d9cdfbd844ea
-	github.com/spf13/cobra v1.1.1
+	github.com/onsi/ginkgo v1.16.4
+	github.com/onsi/gomega v1.14.0
+	github.com/openshift/api v0.0.0-20210915110300-3cd8091317c4
+	github.com/openshift/build-machinery-go v0.0.0-20210806203541-4ea9b6da3a37
+	github.com/openshift/library-go v0.0.0-20210929074827-6e413935eeae
+	github.com/spf13/cobra v1.1.3
 	github.com/spf13/pflag v1.0.5
-	k8s.io/api v0.21.1
-	k8s.io/apiextensions-apiserver v0.21.0-rc.0
-	k8s.io/apimachinery v0.21.1
-	k8s.io/client-go v0.21.1
-	k8s.io/component-base v0.21.0-rc.0
-	k8s.io/klog/v2 v2.8.0
-	k8s.io/kube-aggregator v0.21.0-rc.0
+	k8s.io/api v0.22.1
+	k8s.io/apiextensions-apiserver v0.22.1
+	k8s.io/apimachinery v0.22.1
+	k8s.io/client-go v0.22.1
+	k8s.io/component-base v0.22.1
+	k8s.io/klog/v2 v2.9.0
+	k8s.io/kube-aggregator v0.22.1
 	open-cluster-management.io/api v0.0.0-20210927063308-2c6896161c48
-	sigs.k8s.io/controller-runtime v0.6.1-0.20200829232221-efc74d056b24
-	sigs.k8s.io/kube-storage-version-migrator v0.0.3
+	sigs.k8s.io/controller-runtime v0.9.6
+	sigs.k8s.io/kube-storage-version-migrator v0.0.4
 )
