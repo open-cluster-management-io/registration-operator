@@ -17,7 +17,6 @@ import (
 	operatorclient "open-cluster-management.io/api/client/operator/clientset/versioned"
 	operatorinformer "open-cluster-management.io/api/client/operator/informers/externalversions"
 	workclientset "open-cluster-management.io/api/client/work/clientset/versioned"
-	"open-cluster-management.io/registration-operator/pkg/helpers"
 	certrotationcontroller "open-cluster-management.io/registration-operator/pkg/operators/clustermanager/controllers/certrotationcontroller"
 	"open-cluster-management.io/registration-operator/pkg/operators/clustermanager/controllers/clustermanagercontroller"
 	"open-cluster-management.io/registration-operator/pkg/operators/clustermanager/controllers/migrationcontroller"
@@ -51,7 +50,7 @@ func RunClusterManagerOperator(ctx context.Context, controllerContext *controlle
 		return err
 	}
 
-	kubeInformer := informers.NewSharedInformerFactoryWithOptions(kubeClient, 5*time.Minute, informers.WithNamespace(helpers.ClusterManagerNamespace))
+	kubeInformer := informers.NewSharedInformerFactoryWithOptions(kubeClient, 5*time.Minute)
 
 	// Build operator client and informer
 	operatorClient, err := operatorclient.NewForConfig(controllerContext.KubeConfig)

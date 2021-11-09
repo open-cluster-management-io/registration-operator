@@ -154,13 +154,13 @@ func TestClusterManagerDeploymentQueueKeyFunc(t *testing.T) {
 	}{
 		{
 			name:           "key by work controller",
-			object:         newDeployment("testhub-work-controller", ClusterManagerNamespace, 0),
+			object:         newDeployment("testhub-work-controller", "testhub"+ClusterManagerNamespaceSuffix, 0),
 			clusterManager: newClusterManager("testhub"),
 			expectedKey:    "testhub",
 		},
 		{
 			name:           "key by registrartion controller",
-			object:         newDeployment("testhub-registration-controller", ClusterManagerNamespace, 0),
+			object:         newDeployment("testhub-registration-controller", "testhub"+ClusterManagerNamespaceSuffix, 0),
 			clusterManager: newClusterManager("testhub"),
 			expectedKey:    "testhub",
 		},

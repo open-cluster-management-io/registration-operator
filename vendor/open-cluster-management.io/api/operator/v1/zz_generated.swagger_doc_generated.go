@@ -37,6 +37,7 @@ var map_ClusterManagerSpec = map[string]string{
 	"workImagePullSpec":         "WorkImagePullSpec represents the desired image configuration of work controller/webhook installed on hub.",
 	"placementImagePullSpec":    "PlacementImagePullSpec represents the desired image configuration of placement controller/webhook installed on hub.",
 	"nodePlacement":             "NodePlacement enables explicit control over the scheduling of the deployed pods.",
+	"deployOption":              "DeployOption contains the options of deploying a cluster-manager",
 }
 
 func (ClusterManagerSpec) SwaggerDoc() map[string]string {
@@ -53,6 +54,14 @@ var map_ClusterManagerStatus = map[string]string{
 
 func (ClusterManagerStatus) SwaggerDoc() map[string]string {
 	return map_ClusterManagerStatus
+}
+
+var map_DeployOption = map[string]string{
+	"mode": "Mode can be Default or Hosted. In Hosted mode, hub hosting all deployments on another cluster. The purpose of Hosted mode is to give it more flexibility, for example we can install a hub on a cluster with no worker nodes, meanwhile running all deployments on another more powerful cluster. The cluster installed with CRDs and services, we still call it hub-cluster. The cluster running all deployments, we call it hosted-cluster. In Hosted mode, a ClusterManager is applied to a hosted-cluster, and it leverage a secret named \"external-hub-kubeconfig\" in the namespace with the same name of itself. \"external-hub-kubeconfig\" should contain the kubeconfig with admin permission of hub-cluster.",
+}
+
+func (DeployOption) SwaggerDoc() map[string]string {
+	return map_DeployOption
 }
 
 var map_GenerationStatus = map[string]string{

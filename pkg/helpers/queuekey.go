@@ -20,8 +20,8 @@ const (
 	BootstrapHubKubeConfig = "bootstrap-hub-kubeconfig"
 	// HubKubeConfig is the secret name of kubeconfig secret to connect to hub with mtls
 	HubKubeConfig = "hub-kubeconfig-secret"
-	// ClusterManagerNamespace is the namespace to deploy cluster manager components
-	ClusterManagerNamespace = "open-cluster-management-hub"
+	// ClusterManagerNamespaceSuffix is the suffix of the namespace to deploy cluster manager components
+	ClusterManagerNamespaceSuffix = "open-cluster-management-hub"
 
 	RegistrationWebhookSecret  = "registration-webhook-serving-cert"
 	RegistrationWebhookService = "cluster-manager-registration-webhook"
@@ -87,7 +87,7 @@ func ClusterManagerDeploymentQueueKeyFunc(clusterManagerLister operatorlister.Cl
 		namespace := accessor.GetNamespace()
 		name := accessor.GetName()
 		interestedObjectFound := false
-		if namespace != ClusterManagerNamespace {
+		if strings.Contains(namespace, ClusterManagerNamespaceSuffix) {
 			return ""
 		}
 		if strings.HasSuffix(name, "registration-controller") || strings.HasSuffix(name, "work-controller") || strings.HasSuffix(name, "placement-controller") {

@@ -45,6 +45,23 @@ type ClusterManagerSpec struct {
 	// NodePlacement enables explicit control over the scheduling of the deployed pods.
 	// +optional
 	NodePlacement NodePlacement `json:"nodePlacement,omitempty"`
+
+	// DeployOption contains the options of deploying a cluster-manager
+	// +optional
+	DeployOption DeployOption `json:"deployOption,omitempty"`
+}
+
+type DeployOption struct {
+	// Mode can be Default or Hosted.
+	// In Hosted mode, hub hosting all deployments on another cluster.
+	// The purpose of Hosted mode is to give it more flexibility, for example we can install a hub on a cluster with no worker nodes, meanwhile running all deployments on another more powerful cluster.
+	// The cluster installed with CRDs and services, we still call it hub-cluster.
+	// The cluster running all deployments, we call it hosted-cluster.
+	// In Hosted mode, a ClusterManager is applied to a hosted-cluster, and it leverage a secret named "external-hub-kubeconfig" in the namespace with the same name of itself.
+	// "external-hub-kubeconfig" should contain the kubeconfig with admin permission of hub-cluster.
+	// +required
+	// +kubebuilder:default=Default
+	Mode string `json:"mode,omitempty"`
 }
 
 // ClusterManagerStatus represents the current status of the registration and work distribution controllers running on the hub.
