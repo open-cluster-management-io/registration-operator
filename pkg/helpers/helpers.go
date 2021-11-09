@@ -55,7 +55,7 @@ func init() {
 }
 
 func ClusterManagerNamespace(clustermanagername string) string {
-	return clustermanagername + ClusterManagerNamespaceSuffix
+	return clustermanagername + "-" + ClusterManagerNamespaceSuffix
 }
 
 type UpdateClusterManagerStatusFunc func(status *operatorapiv1.ClusterManagerStatus) error
