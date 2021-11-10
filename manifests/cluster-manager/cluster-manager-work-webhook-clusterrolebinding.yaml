@@ -9,4 +9,4 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: {{ .ClusterManagerName }}-work-webhook-sa
-    namespace: {{ .ClusterManagerName }}-open-cluster-management-hub
+    namespace: {{ .ClusterManagerNamespace }}

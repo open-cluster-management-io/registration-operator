@@ -139,6 +139,7 @@ func NewClusterManagerController(
 // hubConfig is used to render the template of hub manifests
 type hubConfig struct {
 	ClusterManagerName             string
+	ClusterManagerNamespace        string
 	RegistrationImage              string
 	RegistrationAPIServiceCABundle string
 	WorkImage                      string
@@ -162,11 +163,12 @@ func (n *clusterManagerController) sync(ctx context.Context, controllerContext f
 	clusterManager = clusterManager.DeepCopy()
 
 	config := hubConfig{
-		ClusterManagerName: clusterManager.Name,
-		RegistrationImage:  clusterManager.Spec.RegistrationImagePullSpec,
-		WorkImage:          clusterManager.Spec.WorkImagePullSpec,
-		PlacementImage:     clusterManager.Spec.PlacementImagePullSpec,
-		Replica:            helpers.DetermineReplicaByNodes(ctx, n.kubeClient),
+		ClusterManagerName:      clusterManager.Name,
+		ClusterManagerNamespace: helpers.ClusterManagerNamespace(clusterManager.Name, clusterManager.Spec.DeployOption.Mode),
+		RegistrationImage:       clusterManager.Spec.RegistrationImagePullSpec,
+		WorkImage:               clusterManager.Spec.WorkImagePullSpec,
+		PlacementImage:          clusterManager.Spec.PlacementImagePullSpec,
+		Replica:                 helpers.DetermineReplicaByNodes(ctx, n.kubeClient),
 	}
 
 	// Update finalizer at first

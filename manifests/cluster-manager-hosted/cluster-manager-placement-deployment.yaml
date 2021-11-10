@@ -1,19 +1,19 @@
-apiVersion: apps/v1
 kind: Deployment
+apiVersion: apps/v1
 metadata:
-  name: {{ .ClusterManagerName }}-registration-webhook
-  namespace: {{ .ClusterManagerNamespace }}
+  name: {{ .ClusterManagerName }}-placement-controller
+  namespace: open-cluster-management-hub
   labels:
-    app: {{ .ClusterManagerName }}-registration-webhook
+    app: clustermanager-controller
 spec:
   replicas: {{ .Replica }}
   selector:
     matchLabels:
-      app: {{ .ClusterManagerName }}-registration-webhook
+      app: clustermanager-placement-controller
   template:
     metadata:
       labels:
-        app: {{ .ClusterManagerName }}-registration-webhook
+        app: clustermanager-placement-controller
     spec:
       affinity:
         podAntiAffinity:
@@ -26,7 +26,7 @@ spec:
                 - key: app
                   operator: In
                   values:
-                  - {{ .ClusterManagerName }}-registration-webhook
+                  - clustermanager-placement-controller
           - weight: 30
             podAffinityTerm:
               topologyKey: kubernetes.io/hostname
@@ -35,17 +35,14 @@ spec:
                 - key: app
                   operator: In
                   values:
-                  - {{ .ClusterManagerName }}-registration-webhook
-      serviceAccountName: {{ .ClusterManagerName }}-registration-webhook-sa
+                  - clustermanager-placement-controller
+      serviceAccountName: {{ .ClusterManagerName }}-placement-controller-sa
       containers:
-      - name: {{ .ClusterManagerName }}-registration-webhook-sa
-        image: {{ .RegistrationImage }}
+      - name: placement-controller
+        image: {{ .PlacementImage }}
         args:
-          - "/registration"
-          - "webhook"
-          - "--secure-port=6443"
-          - "--tls-cert-file=/serving-cert/tls.crt"
-          - "--tls-private-key-file=/serving-cert/tls.key"
+          - "/placement"
+          - "controller"
         securityContext:
           allowPrivilegeEscalation: false
           capabilities:
@@ -57,25 +54,16 @@ spec:
           httpGet:
             path: /healthz
             scheme: HTTPS
-            port: 6443
+            port: 8443
           initialDelaySeconds: 2
           periodSeconds: 10
         readinessProbe:
           httpGet:
             path: /healthz
             scheme: HTTPS
-            port: 6443
+            port: 8443
           initialDelaySeconds: 2
         resources:
           requests:
             cpu: 100m
             memory: 128Mi
-        volumeMounts:
-        - name: webhook-secret
-          mountPath: "/serving-cert"
-          readOnly: true
-      volumes:
-      - name: webhook-secret
-        secret:
-          secretName: registration-webhook-serving-cert
-
