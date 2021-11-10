@@ -479,3 +479,34 @@ func DetermineReplicaByNodes(ctx context.Context, kubeClient kubernetes.Interfac
 
 	return defaultReplica
 }
+
+// GetExternalKubeclient is used when deploy mode is Hosted. It returns kubeconfig of the external-hub-cluster.
+func GetExternalKubeclient(ctx context.Context, kubeClient kubernetes.Interface, clustermanager string) (kubernetes.Interface, error) {
+	namespace := ClusterManagerNamespace(clustermanager, DeployModeHosted)
+
+	// check if the namespace exist
+	_, err := kubeClient.CoreV1().Namespaces().Get(ctx, namespace, metav1.GetOptions{})
+	if err != nil {
+		return nil, err
+	}
+
+	// check if the secret exist
+	secret, err := kubeClient.CoreV1().Secrets(namespace).Get(ctx, ExternalHubKubeconfig, metav1.GetOptions{})
+	if err != nil {
+		return nil, err
+	}
+
+	// decode the secret to kubeconfig
+	config, err := LoadClientConfigFromSecret(secret)
+	if err != nil {
+		return nil, err
+	}
+
+	// use kubeconfig to init a client
+	client, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return nil, err
+	}
+
+	return client, nil
+}

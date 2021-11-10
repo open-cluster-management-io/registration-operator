@@ -27,6 +27,12 @@ const (
 	RegistrationWebhookService = "cluster-manager-registration-webhook"
 	WorkWebhookSecret          = "work-webhook-serving-cert"
 	WorkWebhookService         = "cluster-manager-work-webhook"
+
+	// Deploy modes
+	DeployModeDefault = "Default"
+	DeployModeHosted  = "Hosted"
+
+	ExternalHubKubeconfig = "external-hub-kubeconfig"
 )
 
 func ClusterManagerNamespaceWithDefaultMode(clustermanagername string) string {
