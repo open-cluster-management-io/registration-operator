@@ -105,7 +105,7 @@ func (c certRotationController) sync(ctx context.Context, syncCtx factory.SyncCo
 		}
 
 		// check if namespace exists or not
-		clustermanagerNamespace := helpers.ClusterManagerNamespace(clustermanagerName)
+		clustermanagerNamespace := helpers.ClusterManagerNamespace(clustermanagerName, clustermanagers[i].Spec.DeployOption.Mode)
 		_, err = c.kubeClient.CoreV1().Namespaces().Get(ctx, clustermanagerNamespace, metav1.GetOptions{})
 		if errors.IsNotFound(err) {
 			return fmt.Errorf("namespace %q does not exist yet", clustermanagerNamespace)

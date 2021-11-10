@@ -45,6 +45,7 @@ func newClusterManager(name string) *operatorapiv1.ClusterManager {
 		},
 		Spec: operatorapiv1.ClusterManagerSpec{
 			RegistrationImagePullSpec: "testregistration",
+			DeployOption:              operatorapiv1.DeployOption{Mode: "Default"}, // all test for now should be Default mode
 		},
 	}
 }
@@ -154,13 +155,13 @@ func TestClusterManagerDeploymentQueueKeyFunc(t *testing.T) {
 	}{
 		{
 			name:           "key by work controller",
-			object:         newDeployment("testhub-work-controller", ClusterManagerNamespace("testhub"), 0),
+			object:         newDeployment("testhub-work-controller", ClusterManagerNamespaceWithDefaultMode("testhub"), 0),
 			clusterManager: newClusterManager("testhub"),
 			expectedKey:    "testhub",
 		},
 		{
 			name:           "key by registrartion controller",
-			object:         newDeployment("testhub-registration-controller", ClusterManagerNamespace("testhub"), 0),
+			object:         newDeployment("testhub-registration-controller", ClusterManagerNamespaceWithDefaultMode("testhub"), 0),
 			clusterManager: newClusterManager("testhub"),
 			expectedKey:    "testhub",
 		},

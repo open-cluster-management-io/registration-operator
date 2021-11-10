@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
-	"strings"
 	"time"
 
 	apiextensionsclient "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
@@ -121,7 +120,7 @@ func NewClusterManagerController(
 			helpers.ClusterManagerConfigmapQueueKeyFunc(controller.clusterManagerLister),
 			func(obj interface{}) bool {
 				accessor, _ := meta.Accessor(obj)
-				if namespace := accessor.GetNamespace(); strings.Contains(namespace, helpers.ClusterManagerNamespaceSuffix) {
+				if namespace := accessor.GetNamespace(); !helpers.IsClusterManagerNamespace(namespace) {
 					return false
 				}
 				if name := accessor.GetName(); name != caBundleConfigmap {
@@ -196,7 +195,7 @@ func (n *clusterManagerController) sync(ctx context.Context, controllerContext f
 
 	// try to load ca bundle from configmap
 	caBundle := "placeholder"
-	configmap, err := n.configMapLister.ConfigMaps(helpers.ClusterManagerNamespace(clusterManagerName)).Get(caBundleConfigmap)
+	configmap, err := n.configMapLister.ConfigMaps(helpers.ClusterManagerNamespace(clusterManagerName, clusterManager.Spec.DeployOption.Mode)).Get(caBundleConfigmap)
 	switch {
 	case errors.IsNotFound(err):
 		// do nothing

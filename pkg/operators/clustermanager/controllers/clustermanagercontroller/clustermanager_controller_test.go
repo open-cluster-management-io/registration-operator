@@ -96,7 +96,7 @@ func ensureObject(t *testing.T, object runtime.Object, hubCore *operatorapiv1.Cl
 
 	switch o := object.(type) {
 	case *corev1.Namespace:
-		testinghelper.AssertEqualNameNamespace(t, access.GetName(), "", helpers.ClusterManagerNamespace("testhub"), "")
+		testinghelper.AssertEqualNameNamespace(t, access.GetName(), "", helpers.ClusterManagerNamespaceWithDefaultMode("testhub"), "")
 	case *appsv1.Deployment:
 		if strings.Contains(o.Name, "registration") && hubCore.Spec.RegistrationImagePullSpec != o.Spec.Template.Spec.Containers[0].Image {
 			t.Errorf("Registration image does not match to the expected.")
@@ -211,7 +211,7 @@ func TestSyncDelete(t *testing.T) {
 	for _, action := range deleteKubeActions {
 		switch action.Resource.Resource {
 		case "namespaces":
-			testinghelper.AssertEqualNameNamespace(t, action.Name, "", helpers.ClusterManagerNamespace("testhub"), "")
+			testinghelper.AssertEqualNameNamespace(t, action.Name, "", helpers.ClusterManagerNamespaceWithDefaultMode("testhub"), "")
 		}
 	}
 }

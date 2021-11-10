@@ -54,10 +54,6 @@ func init() {
 	utilruntime.Must(admissionv1.AddToScheme(genericScheme))
 }
 
-func ClusterManagerNamespace(clustermanagername string) string {
-	return clustermanagername + "-" + ClusterManagerNamespaceSuffix
-}
-
 type UpdateClusterManagerStatusFunc func(status *operatorapiv1.ClusterManagerStatus) error
 
 func UpdateClusterManagerStatus(

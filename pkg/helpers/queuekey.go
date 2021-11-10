@@ -29,6 +29,21 @@ const (
 	WorkWebhookService         = "cluster-manager-work-webhook"
 )
 
+func ClusterManagerNamespaceWithDefaultMode(clustermanagername string) string {
+	return "open-cluster-management-hub"
+}
+
+func ClusterManagerNamespace(clustermanagername string, mode string) string {
+	if mode == "Hosted" {
+		return clustermanagername + "-" + ClusterManagerNamespaceSuffix
+	}
+	return ClusterManagerNamespaceWithDefaultMode(clustermanagername)
+}
+
+func IsClusterManagerNamespace(namespace string) bool {
+	return strings.Contains(namespace, ClusterManagerNamespaceSuffix)
+}
+
 func KlusterletSecretQueueKeyFunc(klusterletLister operatorlister.KlusterletLister) factory.ObjectQueueKeyFunc {
 	return func(obj runtime.Object) string {
 		accessor, _ := meta.Accessor(obj)
@@ -87,7 +102,7 @@ func ClusterManagerDeploymentQueueKeyFunc(clusterManagerLister operatorlister.Cl
 		namespace := accessor.GetNamespace()
 		name := accessor.GetName()
 		interestedObjectFound := false
-		if strings.Contains(namespace, ClusterManagerNamespaceSuffix) {
+		if !IsClusterManagerNamespace(namespace) {
 			return ""
 		}
 		if strings.HasSuffix(name, "registration-controller") || strings.HasSuffix(name, "work-controller") || strings.HasSuffix(name, "placement-controller") {
