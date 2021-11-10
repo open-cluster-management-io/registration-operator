@@ -1,8 +1,10 @@
 apiVersion: operator.open-cluster-management.io/v1
 kind: ClusterManager
 metadata:
-  name: cluster-manager
+  name: cluster-manager-outside
 spec:
   registrationImagePullSpec: quay.io/open-cluster-management/registration
   workImagePullSpec: quay.io/open-cluster-management/work
   placementImagePullSpec: quay.io/open-cluster-management/placement
+  deployOption:
+    mode: Hosted
