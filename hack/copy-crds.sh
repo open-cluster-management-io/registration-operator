@@ -7,6 +7,11 @@ do
     cp $f ./manifests/cluster-manager/
 done
 
+for f in $HUB_CRD_FILES
+do
+    cp $f ./manifests/cluster-manager-external-hub/
+done
+
 for f in $SPOKE_CRD_FILES
 do
     cp $f ./manifests/klusterlet/

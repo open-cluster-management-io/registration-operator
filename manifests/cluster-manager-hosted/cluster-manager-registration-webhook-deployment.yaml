@@ -1,0 +1,81 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .ClusterManagerName }}-registration-webhook
+  namespace: {{ .ClusterManagerNamespace }}
+  labels:
+    app: {{ .ClusterManagerName }}-registration-webhook
+spec:
+  replicas: {{ .Replica }}
+  selector:
+    matchLabels:
+      app: {{ .ClusterManagerName }}-registration-webhook
+  template:
+    metadata:
+      labels:
+        app: {{ .ClusterManagerName }}-registration-webhook
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 70
+            podAffinityTerm:
+              topologyKey: failure-domain.beta.kubernetes.io/zone
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - {{ .ClusterManagerName }}-registration-webhook
+          - weight: 30
+            podAffinityTerm:
+              topologyKey: kubernetes.io/hostname
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - {{ .ClusterManagerName }}-registration-webhook
+      serviceAccountName: {{ .ClusterManagerName }}-registration-webhook-sa
+      containers:
+      - name: {{ .ClusterManagerName }}-registration-webhook-sa
+        image: {{ .RegistrationImage }}
+        args:
+          - "/registration"
+          - "webhook"
+          - "--secure-port=6443"
+          - "--tls-cert-file=/serving-cert/tls.crt"
+          - "--tls-private-key-file=/serving-cert/tls.key"
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
+          privileged: false
+          runAsNonRoot: true
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            scheme: HTTPS
+            port: 6443
+          initialDelaySeconds: 2
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            scheme: HTTPS
+            port: 6443
+          initialDelaySeconds: 2
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+        volumeMounts:
+        - name: webhook-secret
+          mountPath: "/serving-cert"
+          readOnly: true
+      volumes:
+      - name: webhook-secret
+        secret:
+          secretName: registration-webhook-serving-cert
+
