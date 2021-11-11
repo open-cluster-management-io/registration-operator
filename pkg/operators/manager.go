@@ -83,6 +83,7 @@ func RunClusterManagerOperator(ctx context.Context, controllerContext *controlle
 		controllerContext.EventRecorder)
 
 	crdMigrationController := migrationcontroller.NewCRDMigrationController(
+		kubeClient,
 		apiExtensionClient,
 		migrationClient.MigrationV1alpha1(),
 		operatorInformer.Operator().V1().ClusterManagers(),

@@ -9,6 +9,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
 
 	"github.com/openshift/library-go/pkg/assets"
@@ -21,12 +22,13 @@ import (
 	apiextensionsclient "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	migrationv1alpha1 "sigs.k8s.io/kube-storage-version-migrator/pkg/apis/migration/v1alpha1"
-	migrationv1alpha1client "sigs.k8s.io/kube-storage-version-migrator/pkg/clients/clientset/typed/migration/v1alpha1"
-
 	operatorinformer "open-cluster-management.io/api/client/operator/informers/externalversions/operator/v1"
 	operatorlister "open-cluster-management.io/api/client/operator/listers/operator/v1"
 	"open-cluster-management.io/registration-operator/manifests"
+	"open-cluster-management.io/registration-operator/pkg/helpers"
+	migrationv1alpha1 "sigs.k8s.io/kube-storage-version-migrator/pkg/apis/migration/v1alpha1"
+	migrationclient "sigs.k8s.io/kube-storage-version-migrator/pkg/clients/clientset"
+	migrationv1alpha1client "sigs.k8s.io/kube-storage-version-migrator/pkg/clients/clientset/typed/migration/v1alpha1"
 )
 
 var (
@@ -48,6 +50,7 @@ const (
 )
 
 type crdMigrationController struct {
+	kubeclient           kubernetes.Interface
 	clusterManagerLister operatorlister.ClusterManagerLister
 	apiExtensionClient   apiextensionsclient.Interface
 	migrationClient      migrationv1alpha1client.StorageVersionMigrationsGetter
@@ -55,6 +58,7 @@ type crdMigrationController struct {
 
 // NewClusterManagerController construct cluster manager hub controller
 func NewCRDMigrationController(
+	kubeclient kubernetes.Interface,
 	apiExtensionClient apiextensionsclient.Interface,
 	migrationClient migrationv1alpha1client.StorageVersionMigrationsGetter,
 	clusterManagerInformer operatorinformer.ClusterManagerInformer,
@@ -86,32 +90,70 @@ func (c *crdMigrationController) sync(ctx context.Context, controllerContext fac
 		return err
 	}
 
-	// apply storage version migrations if it is supported
-	supported, err := c.supportStorageVersionMigration(ctx)
-	if err != nil {
-		return err
-	}
-	if !supported {
-		return nil
-	}
+	if clusterManager.Spec.DeployOption.Mode == helpers.DeployModeHosted {
+		// get external-kubeconfig
+		externalHubKubeconfig, err := helpers.GetExternalKubeconfig(ctx, c.kubeclient, clusterManagerName)
+		if err != nil {
+			return err
+		}
+		externalApiExtensionClient, err := apiextensionsclient.NewForConfig(externalHubKubeconfig)
+		if err != nil {
+			return err
+		}
+		externalMigrationClient, err := migrationclient.NewForConfig(externalHubKubeconfig)
+		if err != nil {
+			return err
+		}
 
-	// ClusterManager is deleting, we remove its related resources on hub
-	if !clusterManager.DeletionTimestamp.IsZero() {
-		return c.removeStorageVersionMigrations(ctx)
-	}
+		// apply storage version migrations if it is supported
+		supported, err := supportStorageVersionMigration(ctx, externalApiExtensionClient)
+		if err != nil {
+			return err
+		}
+		if !supported {
+			return nil
+		}
 
-	// do not apply storage version migrations until other resources are applied
-	if applied := meta.IsStatusConditionTrue(clusterManager.Status.Conditions, clusterManagerApplied); !applied {
-		controllerContext.Queue().AddAfter(clusterManagerName, 5*time.Second)
-		return nil
-	}
+		// ClusterManager is deleting, we remove its related resources on hub
+		if !clusterManager.DeletionTimestamp.IsZero() {
+			return removeStorageVersionMigrations(ctx, externalMigrationClient.MigrationV1alpha1())
+		}
 
-	return c.applyStorageVersionMigrations(ctx, controllerContext.Recorder())
+		// do not apply storage version migrations until other resources are applied
+		if applied := meta.IsStatusConditionTrue(clusterManager.Status.Conditions, clusterManagerApplied); !applied {
+			controllerContext.Queue().AddAfter(clusterManagerName, 5*time.Second)
+			return nil
+		}
+
+		return applyStorageVersionMigrations(ctx, controllerContext.Recorder(), externalMigrationClient.MigrationV1alpha1())
+	} else {
+		// apply storage version migrations if it is supported
+		supported, err := supportStorageVersionMigration(ctx, c.apiExtensionClient)
+		if err != nil {
+			return err
+		}
+		if !supported {
+			return nil
+		}
+
+		// ClusterManager is deleting, we remove its related resources on hub
+		if !clusterManager.DeletionTimestamp.IsZero() {
+			return removeStorageVersionMigrations(ctx, c.migrationClient)
+		}
+
+		// do not apply storage version migrations until other resources are applied
+		if applied := meta.IsStatusConditionTrue(clusterManager.Status.Conditions, clusterManagerApplied); !applied {
+			controllerContext.Queue().AddAfter(clusterManagerName, 5*time.Second)
+			return nil
+		}
+
+		return applyStorageVersionMigrations(ctx, controllerContext.Recorder(), c.migrationClient)
+	}
 }
 
 // supportStorageVersionMigration returns ture if StorageVersionMigration CRD exists; otherwise returns false.
-func (c *crdMigrationController) supportStorageVersionMigration(ctx context.Context) (bool, error) {
-	_, err := c.apiExtensionClient.ApiextensionsV1().CustomResourceDefinitions().Get(ctx, migrationRequestCRDName, metav1.GetOptions{})
+func supportStorageVersionMigration(ctx context.Context, apiExtensionClient apiextensionsclient.Interface) (bool, error) {
+	_, err := apiExtensionClient.ApiextensionsV1().CustomResourceDefinitions().Get(ctx, migrationRequestCRDName, metav1.GetOptions{})
 	if errors.IsNotFound(err) {
 		return false, nil
 	}
@@ -121,13 +163,12 @@ func (c *crdMigrationController) supportStorageVersionMigration(ctx context.Cont
 	return true, nil
 }
 
-func (c *crdMigrationController) removeStorageVersionMigrations(
-	ctx context.Context) error {
+func removeStorageVersionMigrations(ctx context.Context, migrationClient migrationv1alpha1client.StorageVersionMigrationsGetter) error {
 	// Reomve storage version migrations
 	for _, file := range migrationRequestFiles {
 		err := removeStorageVersionMigration(
 			ctx,
-			c.migrationClient,
+			migrationClient,
 			func(name string) ([]byte, error) {
 				template, err := manifests.ClusterManagerManifestFiles.ReadFile(name)
 				if err != nil {
@@ -144,11 +185,11 @@ func (c *crdMigrationController) removeStorageVersionMigrations(
 	return nil
 }
 
-func (c *crdMigrationController) applyStorageVersionMigrations(ctx context.Context, recorder events.Recorder) error {
+func applyStorageVersionMigrations(ctx context.Context, recorder events.Recorder, migrationClient migrationv1alpha1client.StorageVersionMigrationsGetter) error {
 	errs := []error{}
 	for _, file := range migrationRequestFiles {
 		_, _, err := applyStorageVersionMigration(
-			c.migrationClient,
+			migrationClient,
 			func(name string) ([]byte, error) {
 				template, err := manifests.ClusterManagerManifestFiles.ReadFile(name)
 				if err != nil {
