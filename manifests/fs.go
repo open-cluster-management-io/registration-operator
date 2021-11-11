@@ -5,9 +5,6 @@ import "embed"
 //go:embed cluster-manager
 var ClusterManagerManifestFiles embed.FS
 
-//go:embed cluster-manager-external-hub
-var ClusterManagerExternalHubManifestFiles embed.FS
-
 //go:embed cluster-manager-hosted
 var ClusterManagerHostedManifestFiles embed.FS
 

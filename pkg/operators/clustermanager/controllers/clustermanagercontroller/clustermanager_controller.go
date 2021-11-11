@@ -31,6 +31,7 @@ import (
 	"open-cluster-management.io/registration-operator/pkg/helpers"
 )
 
+// default mode
 var (
 	crdNames = []string{
 		"manifestworks.work.open-cluster-management.io",
@@ -74,6 +75,12 @@ var (
 		"cluster-manager/cluster-manager-work-webhook-deployment.yaml",
 		"cluster-manager/cluster-manager-placement-deployment.yaml",
 	}
+
+	// TODO
+	staticResourceFilesHostedMode = []string{}
+
+	// TODO
+	deploymentFilesHosted = []string{}
 )
 
 const (
@@ -178,20 +185,109 @@ func (n *clusterManagerController) sync(ctx context.Context, controllerContext f
 		}
 	}
 
+	config := hubConfig{
+		ClusterManagerName:      clusterManager.Name,
+		ClusterManagerNamespace: helpers.ClusterManagerNamespace(clusterManager.Name, clusterManager.Spec.DeployOption.Mode),
+		RegistrationImage:       clusterManager.Spec.RegistrationImagePullSpec,
+		WorkImage:               clusterManager.Spec.WorkImagePullSpec,
+		PlacementImage:          clusterManager.Spec.PlacementImagePullSpec,
+		Replica:                 helpers.DetermineReplicaByNodes(ctx, n.kubeClient),
+	}
+
+	currentGenerations := []operatorapiv1.GenerationStatus{}
+	errs := []error{}
+
 	// get the mode of the clustermanager
 	if clusterManager.Spec.DeployOption.Mode == helpers.DeployModeHosted {
 		// in Hosted mode
 
+		// ClusterManager is deleting, we remove its related resources on hub
+		if !clusterManager.DeletionTimestamp.IsZero() {
+			if err := n.cleanUpHostedMode(ctx, controllerContext, config); err != nil {
+				return err
+			}
+			return n.removeClusterManagerFinalizer(ctx, clusterManager)
+		}
+
+		// get clients of external-hub-cluster
+		externalHubKubeconfig, err := helpers.GetExternalKubeconfig(ctx, n.kubeClient, clusterManagerName)
+		if err != nil {
+			return err
+		}
+		externalClient, err := kubernetes.NewForConfig(externalHubKubeconfig)
+		if err != nil {
+			return err
+		}
+		externalAPIExtensionClient, err := apiextensionsclient.NewForConfig(externalHubKubeconfig)
+		if err != nil {
+			return err
+		}
+		externalAPIRegistrationClient, err := apiregistrationclient.NewForConfig(externalHubKubeconfig)
+		if err != nil {
+			return err
+		}
+
+		// try to load ca bundle from configmap
+		caBundle := "placeholder"
+		configmap, err := n.configMapLister.ConfigMaps(helpers.ClusterManagerNamespace(clusterManagerName, clusterManager.Spec.DeployOption.Mode)).Get(caBundleConfigmap)
+		switch {
+		case errors.IsNotFound(err):
+			// do nothing
+		case err != nil:
+			return err
+		default:
+			if cb := configmap.Data["ca-bundle.crt"]; len(cb) > 0 {
+				caBundle = cb
+			}
+		}
+		encodedCaBundle := base64.StdEncoding.EncodeToString([]byte(caBundle))
+		config.RegistrationAPIServiceCABundle = encodedCaBundle
+		config.WorkAPIServiceCABundle = encodedCaBundle
+
+		// Apply static files
+		resourceResults := helpers.ApplyDirectly(
+			externalClient,
+			externalAPIExtensionClient,
+			externalAPIRegistrationClient,
+			controllerContext.Recorder(),
+			func(name string) ([]byte, error) {
+				template, err := manifests.ClusterManagerHostedManifestFiles.ReadFile(name)
+				if err != nil {
+					return nil, err
+				}
+				return assets.MustCreateAssetFromTemplate(name, template, config).Data, nil
+			},
+			staticResourceFilesHostedMode...,
+		)
+
+		for _, result := range resourceResults {
+			if result.Error != nil {
+				errs = append(errs, fmt.Errorf("%q (%T): %v", result.File, result.Type, result.Error))
+			}
+		}
+
+		// Render deployment manifest and apply
+		for _, file := range deploymentFilesHosted {
+			currentGeneration, err := helpers.ApplyDeployment(
+				n.kubeClient,
+				clusterManager.Status.Generations,
+				clusterManager.Spec.NodePlacement,
+				func(name string) ([]byte, error) {
+					template, err := manifests.ClusterManagerHostedManifestFiles.ReadFile(name)
+					if err != nil {
+						return nil, err
+					}
+					return assets.MustCreateAssetFromTemplate(name, template, config).Data, nil
+				},
+				controllerContext.Recorder(),
+				file)
+			if err != nil {
+				errs = append(errs, err)
+			}
+			currentGenerations = append(currentGenerations, currentGeneration)
+		}
 	} else {
 		// in Default mode
-		config := hubConfig{
-			ClusterManagerName:      clusterManager.Name,
-			ClusterManagerNamespace: helpers.ClusterManagerNamespace(clusterManager.Name, clusterManager.Spec.DeployOption.Mode),
-			RegistrationImage:       clusterManager.Spec.RegistrationImagePullSpec,
-			WorkImage:               clusterManager.Spec.WorkImagePullSpec,
-			PlacementImage:          clusterManager.Spec.PlacementImagePullSpec,
-			Replica:                 helpers.DetermineReplicaByNodes(ctx, n.kubeClient),
-		}
 
 		// ClusterManager is deleting, we remove its related resources on hub
 		if !clusterManager.DeletionTimestamp.IsZero() {
@@ -233,14 +329,13 @@ func (n *clusterManagerController) sync(ctx context.Context, controllerContext f
 			},
 			staticResourceFiles...,
 		)
-		errs := []error{}
+
 		for _, result := range resourceResults {
 			if result.Error != nil {
 				errs = append(errs, fmt.Errorf("%q (%T): %v", result.File, result.Type, result.Error))
 			}
 		}
 
-		currentGenerations := []operatorapiv1.GenerationStatus{}
 		// Render deployment manifest and apply
 		for _, file := range deploymentFiles {
 			currentGeneration, err := helpers.ApplyDeployment(
@@ -261,45 +356,43 @@ func (n *clusterManagerController) sync(ctx context.Context, controllerContext f
 			}
 			currentGenerations = append(currentGenerations, currentGeneration)
 		}
-
-		conditions := &clusterManager.Status.Conditions
-		observedKlusterletGeneration := clusterManager.Status.ObservedGeneration
-		if len(errs) == 0 {
-			meta.SetStatusCondition(conditions, metav1.Condition{
-				Type:    clusterManagerApplied,
-				Status:  metav1.ConditionTrue,
-				Reason:  "ClusterManagerApplied",
-				Message: "Components of cluster manager is applied",
-			})
-			observedKlusterletGeneration = clusterManager.Generation
-		} else {
-			meta.SetStatusCondition(conditions, metav1.Condition{
-				Type:    clusterManagerApplied,
-				Status:  metav1.ConditionFalse,
-				Reason:  "ClusterManagerApplyFailed",
-				Message: "Components of cluster manager fail to be applied",
-			})
-		}
-
-		// Update status
-		_, _, updatedErr := helpers.UpdateClusterManagerStatus(
-			ctx, n.clusterManagerClient, clusterManager.Name,
-			helpers.UpdateClusterManagerConditionFn(*conditions...),
-			helpers.UpdateClusterManagerGenerationsFn(currentGenerations...),
-			func(oldStatus *operatorapiv1.ClusterManagerStatus) error {
-				oldStatus.ObservedGeneration = observedKlusterletGeneration
-				return nil
-			},
-		)
-		if updatedErr != nil {
-			errs = append(errs, updatedErr)
-		}
-		if len(errs) != 0 {
-			return operatorhelpers.NewMultiLineAggregate(errs)
-		}
 	}
 
-	return nil
+	// Set status conditions
+	conditions := &clusterManager.Status.Conditions
+	observedKlusterletGeneration := clusterManager.Status.ObservedGeneration
+	if len(errs) == 0 {
+		meta.SetStatusCondition(conditions, metav1.Condition{
+			Type:    clusterManagerApplied,
+			Status:  metav1.ConditionTrue,
+			Reason:  "ClusterManagerApplied",
+			Message: "Components of cluster manager is applied",
+		})
+		observedKlusterletGeneration = clusterManager.Generation
+	} else {
+		meta.SetStatusCondition(conditions, metav1.Condition{
+			Type:    clusterManagerApplied,
+			Status:  metav1.ConditionFalse,
+			Reason:  "ClusterManagerApplyFailed",
+			Message: "Components of cluster manager fail to be applied",
+		})
+	}
+
+	// Update status
+	_, _, updatedErr := helpers.UpdateClusterManagerStatus(
+		ctx, n.clusterManagerClient, clusterManager.Name,
+		helpers.UpdateClusterManagerConditionFn(*conditions...),
+		helpers.UpdateClusterManagerGenerationsFn(currentGenerations...),
+		func(oldStatus *operatorapiv1.ClusterManagerStatus) error {
+			oldStatus.ObservedGeneration = observedKlusterletGeneration
+			return nil
+		},
+	)
+	if updatedErr != nil {
+		errs = append(errs, updatedErr)
+	}
+
+	return operatorhelpers.NewMultiLineAggregate(errs)
 }
 
 func (n *clusterManagerController) removeClusterManagerFinalizer(ctx context.Context, deploy *operatorapiv1.ClusterManager) error {
@@ -374,5 +467,10 @@ func (n *clusterManagerController) cleanUp(
 			return err
 		}
 	}
+	return nil
+}
+
+// TODO
+func (n *clusterManagerController) cleanUpHostedMode(ctx context.Context, controllerContext factory.SyncContext, config hubConfig) error {
 	return nil
 }

@@ -9,7 +9,7 @@ done
 
 for f in $HUB_CRD_FILES
 do
-    cp $f ./manifests/cluster-manager-external-hub/
+    cp $f ./manifests/cluster-manager-hosted/
 done
 
 for f in $SPOKE_CRD_FILES
