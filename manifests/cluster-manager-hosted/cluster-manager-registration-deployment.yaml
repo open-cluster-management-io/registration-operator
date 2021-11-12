@@ -43,6 +43,7 @@ spec:
         args:
           - "/registration"
           - "controller"
+          - "--kubeconfig=/var/run/secrets/external-hub/kubeconfig"
         securityContext:
           allowPrivilegeEscalation: false
           capabilities:
@@ -67,3 +68,11 @@ spec:
           requests:
             cpu: 100m
             memory: 128Mi
+        volumeMounts:
+        - mountPath: /var/run/secrets/external-hub
+          name: kubeconfig
+          readOnly: true
+      volumes:
+      - name: kubeconfig
+        secret:
+          secretName: external-hub-kubeconfig

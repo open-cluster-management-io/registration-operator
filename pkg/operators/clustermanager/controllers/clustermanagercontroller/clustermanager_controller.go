@@ -76,11 +76,44 @@ var (
 		"cluster-manager/cluster-manager-placement-deployment.yaml",
 	}
 
-	// TODO
-	staticResourceFilesHostedMode = []string{}
+	staticResourceFilesHostedMode = []string{
+		"cluster-manager-hosted/0000_00_addon.open-cluster-management.io_clustermanagementaddons.crd.yaml",
+		"cluster-manager-hosted/0000_00_clusters.open-cluster-management.io_managedclusters.crd.yaml",
+		"cluster-manager-hosted/0000_00_clusters.open-cluster-management.io_managedclustersets.crd.yaml",
+		"cluster-manager-hosted/0000_00_work.open-cluster-management.io_manifestworks.crd.yaml",
+		"cluster-manager-hosted/0000_01_addon.open-cluster-management.io_managedclusteraddons.crd.yaml",
+		"cluster-manager-hosted/0000_01_clusters.open-cluster-management.io_managedclustersetbindings.crd.yaml",
+		"cluster-manager-hosted/0000_03_clusters.open-cluster-management.io_placements.crd.yaml",
+		"cluster-manager-hosted/0000_04_clusters.open-cluster-management.io_placementdecisions.crd.yaml",
+		"cluster-manager-hosted/cluster-manager-registration-clusterrole.yaml",
+		"cluster-manager-hosted/cluster-manager-registration-clusterrolebinding.yaml",
+		"cluster-manager-hosted/cluster-manager-namespace.yaml",
+		"cluster-manager-hosted/cluster-manager-registration-serviceaccount.yaml",
+		"cluster-manager-hosted/cluster-manager-registration-webhook-clusterrole.yaml",
+		"cluster-manager-hosted/cluster-manager-registration-webhook-clusterrolebinding.yaml",
+		"cluster-manager-hosted/cluster-manager-registration-webhook-service.yaml",
+		"cluster-manager-hosted/cluster-manager-registration-webhook-serviceaccount.yaml",
+		"cluster-manager-hosted/cluster-manager-registration-webhook-apiservice.yaml",
+		"cluster-manager-hosted/cluster-manager-registration-webhook-clustersetbinding-validatingconfiguration.yaml",
+		"cluster-manager-hosted/cluster-manager-registration-webhook-validatingconfiguration.yaml",
+		"cluster-manager-hosted/cluster-manager-registration-webhook-mutatingconfiguration.yaml",
+		"cluster-manager-hosted/cluster-manager-work-webhook-clusterrole.yaml",
+		"cluster-manager-hosted/cluster-manager-work-webhook-clusterrolebinding.yaml",
+		"cluster-manager-hosted/cluster-manager-work-webhook-service.yaml",
+		"cluster-manager-hosted/cluster-manager-work-webhook-serviceaccount.yaml",
+		"cluster-manager-hosted/cluster-manager-work-webhook-apiservice.yaml",
+		"cluster-manager-hosted/cluster-manager-work-webhook-validatingconfiguration.yaml",
+		"cluster-manager-hosted/cluster-manager-placement-clusterrole.yaml",
+		"cluster-manager-hosted/cluster-manager-placement-clusterrolebinding.yaml",
+		"cluster-manager-hosted/cluster-manager-placement-serviceaccount.yaml",
+	}
 
-	// TODO
-	deploymentFilesHosted = []string{}
+	deploymentFilesHosted = []string{
+		"cluster-manager-hosted/cluster-manager-registration-deployment.yaml",
+		"cluster-manager-hosted/cluster-manager-registration-webhook-deployment.yaml",
+		"cluster-manager-hosted/cluster-manager-work-webhook-deployment.yaml",
+		"cluster-manager-hosted/cluster-manager-placement-deployment.yaml",
+	}
 )
 
 const (
@@ -201,14 +234,6 @@ func (n *clusterManagerController) sync(ctx context.Context, controllerContext f
 	if clusterManager.Spec.DeployOption.Mode == helpers.DeployModeHosted {
 		// in Hosted mode
 
-		// ClusterManager is deleting, we remove its related resources on hub
-		if !clusterManager.DeletionTimestamp.IsZero() {
-			if err := n.cleanUpHostedMode(ctx, controllerContext, config); err != nil {
-				return err
-			}
-			return n.removeClusterManagerFinalizer(ctx, clusterManager)
-		}
-
 		// get clients of external-hub-cluster
 		externalHubKubeconfig, err := helpers.GetExternalKubeconfig(ctx, n.kubeClient, clusterManagerName)
 		if err != nil {
@@ -225,6 +250,14 @@ func (n *clusterManagerController) sync(ctx context.Context, controllerContext f
 		externalAPIRegistrationClient, err := apiregistrationclient.NewForConfig(externalHubKubeconfig)
 		if err != nil {
 			return err
+		}
+
+		// ClusterManager is deleting, we remove its related resources on hub
+		if !clusterManager.DeletionTimestamp.IsZero() {
+			if err := cleanUp(ctx, controllerContext, config, externalClient, externalAPIExtensionClient, externalAPIRegistrationClient); err != nil {
+				return err
+			}
+			return n.removeClusterManagerFinalizer(ctx, clusterManager)
 		}
 
 		// try to load ca bundle from configmap
@@ -291,7 +324,7 @@ func (n *clusterManagerController) sync(ctx context.Context, controllerContext f
 
 		// ClusterManager is deleting, we remove its related resources on hub
 		if !clusterManager.DeletionTimestamp.IsZero() {
-			if err := n.cleanUp(ctx, controllerContext, config); err != nil {
+			if err := cleanUp(ctx, controllerContext, config, n.kubeClient, n.apiExtensionClient, n.apiRegistrationClient); err != nil {
 				return err
 			}
 			return n.removeClusterManagerFinalizer(ctx, clusterManager)
@@ -415,8 +448,8 @@ func (n *clusterManagerController) removeClusterManagerFinalizer(ctx context.Con
 
 // removeCRD removes crd, and check if crd resource is removed. Since the related cr is still being deleted,
 // it will check the crd existence after deletion, and only return nil when crd is not found.
-func (n *clusterManagerController) removeCRD(ctx context.Context, name string) error {
-	err := n.apiExtensionClient.ApiextensionsV1().CustomResourceDefinitions().Delete(
+func removeCRD(ctx context.Context, name string, apiExtensionClient apiextensionsclient.Interface) error {
+	err := apiExtensionClient.ApiextensionsV1().CustomResourceDefinitions().Delete(
 		ctx, name, metav1.DeleteOptions{})
 	switch {
 	case errors.IsNotFound(err):
@@ -425,7 +458,7 @@ func (n *clusterManagerController) removeCRD(ctx context.Context, name string) e
 		return err
 	}
 
-	_, err = n.apiExtensionClient.ApiextensionsV1().CustomResourceDefinitions().Get(ctx, name, metav1.GetOptions{})
+	_, err = apiExtensionClient.ApiextensionsV1().CustomResourceDefinitions().Get(ctx, name, metav1.GetOptions{})
 	switch {
 	case errors.IsNotFound(err):
 		return nil
@@ -436,11 +469,10 @@ func (n *clusterManagerController) removeCRD(ctx context.Context, name string) e
 	return fmt.Errorf("CRD %s is still being deleted", name)
 }
 
-func (n *clusterManagerController) cleanUp(
-	ctx context.Context, controllerContext factory.SyncContext, config hubConfig) error {
+func cleanUp(ctx context.Context, controllerContext factory.SyncContext, config hubConfig, kubeClient kubernetes.Interface, apiExtensionClient apiextensionsclient.Interface, apiRegistrationClient apiregistrationclient.APIServicesGetter) error {
 	// Remove crd
 	for _, name := range crdNames {
-		err := n.removeCRD(ctx, name)
+		err := removeCRD(ctx, name, apiExtensionClient)
 		if err != nil {
 			return err
 		}
@@ -451,9 +483,9 @@ func (n *clusterManagerController) cleanUp(
 	for _, file := range staticResourceFiles {
 		err := helpers.CleanUpStaticObject(
 			ctx,
-			n.kubeClient,
-			n.apiExtensionClient,
-			n.apiRegistrationClient,
+			kubeClient,
+			apiExtensionClient,
+			apiRegistrationClient,
 			func(name string) ([]byte, error) {
 				template, err := manifests.ClusterManagerManifestFiles.ReadFile(name)
 				if err != nil {
@@ -467,10 +499,5 @@ func (n *clusterManagerController) cleanUp(
 			return err
 		}
 	}
-	return nil
-}
-
-// TODO
-func (n *clusterManagerController) cleanUpHostedMode(ctx context.Context, controllerContext factory.SyncContext, config hubConfig) error {
 	return nil
 }

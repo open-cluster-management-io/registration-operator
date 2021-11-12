@@ -46,6 +46,9 @@ spec:
           - "--secure-port=6443"
           - "--tls-cert-file=/serving-cert/tls.crt"
           - "--tls-private-key-file=/serving-cert/tls.key"
+          - "--kubeconfig=/var/run/secrets/external-hub/kubeconfig"
+          - "--authentication-kubeconfig=/var/run/secrets/external-hub/kubeconfig"
+          - "--authorization-kubeconfig=/var/run/secrets/external-hub/kubeconfig"
         securityContext:
           allowPrivilegeEscalation: false
           capabilities:
@@ -74,8 +77,13 @@ spec:
         - name: webhook-secret
           mountPath: "/serving-cert"
           readOnly: true
+        - mountPath: /var/run/secrets/external-hub
+          name: kubeconfig
+          readOnly: true
       volumes:
       - name: webhook-secret
         secret:
           secretName: registration-webhook-serving-cert
-
+      - name: kubeconfig
+        secret:
+          secretName: external-hub-kubeconfig
