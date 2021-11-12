@@ -11,6 +11,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/client-go/informers"
 	corev1informers "k8s.io/client-go/informers/core/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
@@ -100,62 +101,139 @@ func (c certRotationController) sync(ctx context.Context, syncCtx factory.SyncCo
 
 		klog.Infof("Reconciling ClusterManager %q", clustermanagerName)
 		// do nothing if the cluster manager is deleting
-		if !clustermanagers[0].DeletionTimestamp.IsZero() {
+		if !clustermanagers[i].DeletionTimestamp.IsZero() {
 			return nil
 		}
 
-		// check if namespace exists or not
 		clustermanagerNamespace := helpers.ClusterManagerNamespace(clustermanagerName, clustermanagers[i].Spec.DeployOption.Mode)
-		_, err = c.kubeClient.CoreV1().Namespaces().Get(ctx, clustermanagerNamespace, metav1.GetOptions{})
-		if errors.IsNotFound(err) {
-			return fmt.Errorf("namespace %q does not exist yet", clustermanagerNamespace)
-		}
-		if err != nil {
-			return err
-		}
 
-		// check if rotations exist, if not exist then create one
-		if _, ok := c.rotationMap[clustermanagerName]; !ok {
-			signingRotation := certrotation.SigningRotation{
-				Namespace:        clustermanagerNamespace,
-				Name:             signerSecret,
-				SignerNamePrefix: signerNamePrefix,
-				Validity:         SigningCertValidity,
-				Lister:           c.secretInformer.Lister(),
-				Client:           c.kubeClient.CoreV1(),
-				EventRecorder:    c.recorder,
+		if clustermanagers[i].Spec.DeployOption.Mode == helpers.DeployModeHosted {
+			// In Hosted mode
+
+			externalHubKubeconfig, err := helpers.GetExternalKubeconfig(ctx, c.kubeClient, clustermanagerName)
+			if err != nil {
+				return err
 			}
-			caBundleRotation := certrotation.CABundleRotation{
-				Namespace:     clustermanagerNamespace,
-				Name:          caBundleConfigmap,
-				Lister:        c.configMapInformer.Lister(),
-				Client:        c.kubeClient.CoreV1(),
-				EventRecorder: c.recorder,
+			externalClient, err := kubernetes.NewForConfig(externalHubKubeconfig)
+			if err != nil {
+				return err
 			}
-			targetRotations := []certrotation.TargetRotation{
-				{
+
+			// check if namespace exists or not, we should check both hosted cluster and external-hub cluster
+			_, err = c.kubeClient.CoreV1().Namespaces().Get(ctx, clustermanagerNamespace, metav1.GetOptions{})
+			if errors.IsNotFound(err) {
+				return fmt.Errorf("namespace %q does not exist yet", clustermanagerNamespace)
+			}
+			if err != nil {
+				return err
+			}
+			_, err = externalClient.CoreV1().Namespaces().Get(ctx, clustermanagerNamespace, metav1.GetOptions{})
+			if errors.IsNotFound(err) {
+				return fmt.Errorf("namespace %q does not exist yet", clustermanagerNamespace)
+			}
+			if err != nil {
+				return err
+			}
+
+			// check if rotations exist, if not exist then create one
+			if _, ok := c.rotationMap[clustermanagerName]; !ok {
+				signingRotation := certrotation.SigningRotation{
+					Namespace:        clustermanagerNamespace,
+					Name:             signerSecret,
+					SignerNamePrefix: signerNamePrefix,
+					Validity:         SigningCertValidity,
+					Lister:           c.secretInformer.Lister(),
+					Client:           c.kubeClient.CoreV1(),
+					EventRecorder:    c.recorder,
+				}
+				caBundleRotation := certrotation.CABundleRotation{
 					Namespace:     clustermanagerNamespace,
-					Name:          helpers.RegistrationWebhookSecret,
-					Validity:      TargetCertValidity,
-					HostNames:     []string{fmt.Sprintf("%s.%s.svc", helpers.RegistrationWebhookService, clustermanagerNamespace)},
-					Lister:        c.secretInformer.Lister(),
+					Name:          caBundleConfigmap,
+					Lister:        informers.NewSharedInformerFactoryWithOptions(externalClient, 5*time.Minute).Core().V1().ConfigMaps().Lister(),
+					Client:        externalClient.CoreV1(),
+					EventRecorder: c.recorder,
+				}
+				targetRotations := []certrotation.TargetRotation{
+					{
+						Namespace:     clustermanagerNamespace,
+						Name:          helpers.RegistrationWebhookSecret,
+						Validity:      TargetCertValidity,
+						HostNames:     []string{fmt.Sprintf("%s.%s.svc", helpers.RegistrationWebhookService, clustermanagerNamespace)},
+						Lister:        c.secretInformer.Lister(),
+						Client:        c.kubeClient.CoreV1(),
+						EventRecorder: c.recorder,
+					},
+					{
+						Namespace:     clustermanagerNamespace,
+						Name:          helpers.WorkWebhookSecret,
+						Validity:      TargetCertValidity,
+						HostNames:     []string{fmt.Sprintf("%s.%s.svc", helpers.WorkWebhookService, clustermanagerNamespace)},
+						Lister:        c.secretInformer.Lister(),
+						Client:        c.kubeClient.CoreV1(),
+						EventRecorder: c.recorder,
+					},
+				}
+				c.rotationMap[clustermanagerName] = rotations{
+					signingRotation:  signingRotation,
+					caBundleRotation: caBundleRotation,
+					targetRotations:  targetRotations,
+				}
+			}
+		} else {
+			// In Default mode
+
+			// check if namespace exists or not
+			_, err = c.kubeClient.CoreV1().Namespaces().Get(ctx, clustermanagerNamespace, metav1.GetOptions{})
+			if errors.IsNotFound(err) {
+				return fmt.Errorf("namespace %q does not exist yet", clustermanagerNamespace)
+			}
+			if err != nil {
+				return err
+			}
+
+			// check if rotations exist, if not exist then create one
+			if _, ok := c.rotationMap[clustermanagerName]; !ok {
+				signingRotation := certrotation.SigningRotation{
+					Namespace:        clustermanagerNamespace,
+					Name:             signerSecret,
+					SignerNamePrefix: signerNamePrefix,
+					Validity:         SigningCertValidity,
+					Lister:           c.secretInformer.Lister(),
+					Client:           c.kubeClient.CoreV1(),
+					EventRecorder:    c.recorder,
+				}
+				caBundleRotation := certrotation.CABundleRotation{
+					Namespace:     clustermanagerNamespace,
+					Name:          caBundleConfigmap,
+					Lister:        c.configMapInformer.Lister(),
 					Client:        c.kubeClient.CoreV1(),
 					EventRecorder: c.recorder,
-				},
-				{
-					Namespace:     clustermanagerNamespace,
-					Name:          helpers.WorkWebhookSecret,
-					Validity:      TargetCertValidity,
-					HostNames:     []string{fmt.Sprintf("%s.%s.svc", helpers.WorkWebhookService, clustermanagerNamespace)},
-					Lister:        c.secretInformer.Lister(),
-					Client:        c.kubeClient.CoreV1(),
-					EventRecorder: c.recorder,
-				},
-			}
-			c.rotationMap[clustermanagerName] = rotations{
-				signingRotation:  signingRotation,
-				caBundleRotation: caBundleRotation,
-				targetRotations:  targetRotations,
+				}
+				targetRotations := []certrotation.TargetRotation{
+					{
+						Namespace:     clustermanagerNamespace,
+						Name:          helpers.RegistrationWebhookSecret,
+						Validity:      TargetCertValidity,
+						HostNames:     []string{fmt.Sprintf("%s.%s.svc", helpers.RegistrationWebhookService, clustermanagerNamespace)},
+						Lister:        c.secretInformer.Lister(),
+						Client:        c.kubeClient.CoreV1(),
+						EventRecorder: c.recorder,
+					},
+					{
+						Namespace:     clustermanagerNamespace,
+						Name:          helpers.WorkWebhookSecret,
+						Validity:      TargetCertValidity,
+						HostNames:     []string{fmt.Sprintf("%s.%s.svc", helpers.WorkWebhookService, clustermanagerNamespace)},
+						Lister:        c.secretInformer.Lister(),
+						Client:        c.kubeClient.CoreV1(),
+						EventRecorder: c.recorder,
+					},
+				}
+				c.rotationMap[clustermanagerName] = rotations{
+					signingRotation:  signingRotation,
+					caBundleRotation: caBundleRotation,
+					targetRotations:  targetRotations,
+				}
 			}
 		}
 
