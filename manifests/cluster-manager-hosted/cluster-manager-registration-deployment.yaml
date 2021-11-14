@@ -36,7 +36,6 @@ spec:
                   operator: In
                   values:
                   - clustermanager-registration-controller
-      serviceAccountName: {{ .ClusterManagerName }}-registration-controller-sa
       containers:
       - name: hub-registration-controller
         image: {{ .RegistrationImage }}

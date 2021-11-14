@@ -36,7 +36,6 @@ spec:
                   operator: In
                   values:
                   - clustermanager-placement-controller
-      serviceAccountName: {{ .ClusterManagerName }}-placement-controller-sa
       containers:
       - name: placement-controller
         image: {{ .PlacementImage }}

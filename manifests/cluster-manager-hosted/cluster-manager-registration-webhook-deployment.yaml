@@ -36,7 +36,6 @@ spec:
                   operator: In
                   values:
                   - {{ .ClusterManagerName }}-registration-webhook
-      serviceAccountName: {{ .ClusterManagerName }}-registration-webhook-sa
       containers:
       - name: {{ .ClusterManagerName }}-registration-webhook-sa
         image: {{ .RegistrationImage }}
