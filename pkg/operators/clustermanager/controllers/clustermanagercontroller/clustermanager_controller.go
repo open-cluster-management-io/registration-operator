@@ -108,6 +108,11 @@ var (
 		"cluster-manager-hosted/cluster-manager-placement-serviceaccount.yaml",
 	}
 
+	webhookServiceHosted = []string{
+		"cluster-manager-hosted/cluster-manager-registration-webhook-service-hosted.yaml",
+		"cluster-manager-hosted/cluster-manager-work-webhook-service-hosted.yaml",
+	}
+
 	deploymentFilesHosted = []string{
 		"cluster-manager-hosted/cluster-manager-registration-deployment.yaml",
 		"cluster-manager-hosted/cluster-manager-registration-webhook-deployment.yaml",
@@ -294,6 +299,28 @@ func (n *clusterManagerController) sync(ctx context.Context, controllerContext f
 		)
 
 		for _, result := range resourceResults {
+			if result.Error != nil {
+				errs = append(errs, fmt.Errorf("%q (%T): %v", result.File, result.Type, result.Error))
+			}
+		}
+
+		// Apply service to export webhook TODO NodePort for now, need a better solution later
+		webhookResourceResults := helpers.ApplyDirectly(
+			n.kubeClient,
+			n.apiExtensionClient,
+			n.apiRegistrationClient,
+			controllerContext.Recorder(),
+			func(name string) ([]byte, error) {
+				template, err := manifests.ClusterManagerHostedManifestFiles.ReadFile(name)
+				if err != nil {
+					return nil, err
+				}
+				return assets.MustCreateAssetFromTemplate(name, template, config).Data, nil
+			},
+			webhookServiceHosted...,
+		)
+
+		for _, result := range webhookResourceResults {
 			if result.Error != nil {
 				errs = append(errs, fmt.Errorf("%q (%T): %v", result.File, result.Type, result.Error))
 			}
