@@ -924,3 +924,49 @@ func TestUpdateRelatedResources(t *testing.T) {
 		})
 	}
 }
+
+func TestKlusterletNamespace(t *testing.T) {
+	testcases := []struct {
+		name           string
+		klusterletName string
+		specNamespace  string
+		mode           operatorapiv1.InstallMode
+		expect         string
+	}{
+		{
+			name:          "Default mode without spec namespace",
+			specNamespace: "",
+			mode:          "",
+			expect:        KlusterletDefaultNamespace,
+		},
+		{
+			name:          "Default mode with spec namespace",
+			specNamespace: "open-cluster-management-test",
+			mode:          "",
+			expect:        "open-cluster-management-test",
+		},
+		{
+			name:           "Detached mode with spec namespace",
+			klusterletName: "klusterlet",
+			specNamespace:  "open-cluster-management-test",
+			mode:           operatorapiv1.InstallModeDetached,
+			expect:         "klusterlet",
+		},
+		{
+			name:           "Detached mode without spec namespace",
+			klusterletName: "klusterlet",
+			specNamespace:  "",
+			mode:           operatorapiv1.InstallModeDetached,
+			expect:         "klusterlet",
+		},
+	}
+
+	for _, c := range testcases {
+		t.Run(c.name, func(t *testing.T) {
+			namespace := KlusterletNamespace(c.mode, c.klusterletName, c.specNamespace)
+			if namespace != c.expect {
+				t.Errorf("Expect namespace %v, got %v", c.expect, namespace)
+			}
+		})
+	}
+}

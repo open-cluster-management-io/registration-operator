@@ -20,6 +20,9 @@ const (
 	BootstrapHubKubeConfig = "bootstrap-hub-kubeconfig"
 	// HubKubeConfig is the secret name of kubeconfig secret to connect to hub with mtls
 	HubKubeConfig = "hub-kubeconfig-secret"
+	// ExternalManagedKubeConfig is the secret name of kubeconfig secret to connect to managed cluster
+	// Only applicable to Detached mode
+	ExternalManagedKubeConfig = "external-managed-kubeconfig"
 	// ClusterManagerNamespace is the namespace to deploy cluster manager components
 	ClusterManagerNamespace = "open-cluster-management-hub"
 
@@ -35,7 +38,7 @@ func KlusterletSecretQueueKeyFunc(klusterletLister operatorlister.KlusterletList
 		namespace := accessor.GetNamespace()
 		name := accessor.GetName()
 		interestedObjectFound := false
-		if name == HubKubeConfig || name == BootstrapHubKubeConfig {
+		if name == HubKubeConfig || name == BootstrapHubKubeConfig || name == ExternalManagedKubeConfig {
 			interestedObjectFound = true
 		}
 		if !interestedObjectFound {
@@ -127,10 +130,7 @@ func ClusterManagerConfigmapQueueKeyFunc(clusterManagerLister operatorlister.Clu
 
 func FindKlusterletByNamespace(klusterlets []*operatorapiv1.Klusterlet, namespace string) *operatorapiv1.Klusterlet {
 	for _, klusterlet := range klusterlets {
-		klusterletNS := klusterlet.Spec.Namespace
-		if klusterletNS == "" {
-			klusterletNS = KlusterletDefaultNamespace
-		}
+		klusterletNS := KlusterletNamespace(klusterlet.Spec.DeployOption.Mode, klusterlet.Name, klusterlet.Spec.Namespace)
 		if namespace == klusterletNS {
 			return klusterlet
 		}

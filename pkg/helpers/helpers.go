@@ -593,3 +593,17 @@ func UpdateKlusterletRelatedResourcesFn(relatedResources ...operatorapiv1.Relate
 		return nil
 	}
 }
+
+// KlusterletNamespace returns the klusterletNamespace to deploy the agents.
+func KlusterletNamespace(mode operatorapiv1.InstallMode, klusterletName, specNamespace string) string {
+	if mode == operatorapiv1.InstallModeDetached {
+		return klusterletName
+	}
+
+	if specNamespace == "" {
+		// If namespace is not set, use the default namespace
+		return KlusterletDefaultNamespace
+	}
+
+	return specNamespace
+}

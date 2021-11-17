@@ -12,23 +12,24 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/version"
 	appsinformer "k8s.io/client-go/informers/apps/v1"
 	coreinformer "k8s.io/client-go/informers/core/v1"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 	"k8s.io/klog/v2"
 
+	"github.com/openshift/library-go/pkg/assets"
 	"github.com/openshift/library-go/pkg/controller/factory"
 	"github.com/openshift/library-go/pkg/operator/events"
-	"k8s.io/apimachinery/pkg/runtime"
-
-	"github.com/openshift/library-go/pkg/assets"
 	"github.com/openshift/library-go/pkg/operator/resource/resourceapply"
 	operatorhelpers "github.com/openshift/library-go/pkg/operator/v1helpers"
 
 	operatorv1client "open-cluster-management.io/api/client/operator/clientset/versioned/typed/operator/v1"
 	operatorinformer "open-cluster-management.io/api/client/operator/informers/externalversions/operator/v1"
 	operatorlister "open-cluster-management.io/api/client/operator/listers/operator/v1"
+	workclientset "open-cluster-management.io/api/client/work/clientset/versioned"
 	workv1client "open-cluster-management.io/api/client/work/clientset/versioned/typed/work/v1"
 	operatorapiv1 "open-cluster-management.io/api/operator/v1"
 	"open-cluster-management.io/registration-operator/manifests"
@@ -127,6 +128,16 @@ type klusterletConfig struct {
 	BootStrapKubeConfigSecret string
 	OperatorNamespace         string
 	Replica                   int32
+
+	ExternalManagedKubeConfigSecret string
+	DetachedMode                    bool
+}
+
+// managedClusterClients holds variety of kube client for managed cluster
+type managedClusterClients struct {
+	kubeClient                kubernetes.Interface
+	apiExtensionClient        apiextensionsclient.Interface
+	appliedManifestWorkClient workv1client.AppliedManifestWorkInterface
 }
 
 func (n *klusterletController) sync(ctx context.Context, controllerContext factory.SyncContext) error {
@@ -141,9 +152,11 @@ func (n *klusterletController) sync(ctx context.Context, controllerContext facto
 		return err
 	}
 	klusterlet = klusterlet.DeepCopy()
+
+	detachedMode := klusterlet.Spec.DeployOption.Mode == operatorapiv1.InstallModeDetached
 	config := klusterletConfig{
 		KlusterletName:            klusterlet.Name,
-		KlusterletNamespace:       klusterlet.Spec.Namespace,
+		KlusterletNamespace:       helpers.KlusterletNamespace(klusterlet.Spec.DeployOption.Mode, klusterletName, klusterlet.Spec.Namespace),
 		RegistrationImage:         klusterlet.Spec.RegistrationImagePullSpec,
 		WorkImage:                 klusterlet.Spec.WorkImagePullSpec,
 		ClusterName:               klusterlet.Spec.ClusterName,
@@ -152,10 +165,14 @@ func (n *klusterletController) sync(ctx context.Context, controllerContext facto
 		ExternalServerURL:         getServersFromKlusterlet(klusterlet),
 		OperatorNamespace:         n.operatorNamespace,
 		Replica:                   helpers.DetermineReplicaByNodes(ctx, n.kubeClient),
+
+		ExternalManagedKubeConfigSecret: helpers.ExternalManagedKubeConfig,
+		DetachedMode:                    detachedMode,
 	}
-	// If namespace is not set, use the default namespace
-	if config.KlusterletNamespace == "" {
-		config.KlusterletNamespace = helpers.KlusterletDefaultNamespace
+
+	managedClusterClients, err := n.buildManagedClusterClients(detachedMode, config.KlusterletNamespace)
+	if err != nil {
+		return err
 	}
 
 	// Update finalizer at first
@@ -176,7 +193,7 @@ func (n *klusterletController) sync(ctx context.Context, controllerContext facto
 
 	// Klusterlet is deleting, we remove its related resources on managed cluster
 	if !klusterlet.DeletionTimestamp.IsZero() {
-		if err := n.cleanUp(ctx, controllerContext, config); err != nil {
+		if err := n.cleanUp(ctx, controllerContext, managedClusterClients, config); err != nil {
 			return err
 		}
 		return n.removeKlusterletFinalizer(ctx, klusterlet)
@@ -253,7 +270,8 @@ func (n *klusterletController) sync(ctx context.Context, controllerContext facto
 	}
 
 	resourceResults := resourceapply.ApplyDirectly(
-		resourceapply.NewKubeClientHolder(n.kubeClient).WithAPIExtensionsClient(n.apiExtensionClient),
+		// TODO(zhujian7): seperate the static files with mode
+		resourceapply.NewKubeClientHolder(n.kubeClient).WithAPIExtensionsClient(managedClusterClients.apiExtensionClient),
 		controllerContext.Recorder(),
 		func(name string) ([]byte, error) {
 			template, err := manifests.KlusterletManifestFiles.ReadFile(name)
@@ -412,7 +430,11 @@ func (n *klusterletController) ensureNamespace(ctx context.Context, klusterletNa
 	return nil
 }
 
-func (n *klusterletController) cleanUp(ctx context.Context, controllerContext factory.SyncContext, config klusterletConfig) error {
+func (n *klusterletController) cleanUp(
+	ctx context.Context,
+	controllerContext factory.SyncContext,
+	managedClients *managedClusterClients,
+	config klusterletConfig) error {
 	// Remove deployment
 	registrationDeployment := fmt.Sprintf("%s-registration-agent", config.KlusterletName)
 	err := n.kubeClient.AppsV1().Deployments(config.KlusterletNamespace).Delete(ctx, registrationDeployment, metav1.DeleteOptions{})
@@ -446,6 +468,14 @@ func (n *klusterletController) cleanUp(ctx context.Context, controllerContext fa
 		return err
 	}
 	controllerContext.Recorder().Eventf("SecretDeleted", "secret %s is deleted", config.HubKubeConfigSecret)
+	// Remove the external-managed-kubeconfig
+	if config.DetachedMode {
+		err = n.kubeClient.CoreV1().Secrets(config.KlusterletNamespace).Delete(ctx, config.ExternalManagedKubeConfigSecret, metav1.DeleteOptions{})
+		if err != nil && !errors.IsNotFound(err) {
+			return err
+		}
+		controllerContext.Recorder().Eventf("SecretDeleted", "secret %s is deleted", config.ExternalManagedKubeConfigSecret)
+	}
 
 	// Remove Static files
 	for _, file := range staticResourceFiles {
@@ -504,7 +534,7 @@ func (n *klusterletController) cleanUp(ctx context.Context, controllerContext fa
 
 	// remove AppliedManifestWorks
 	if len(hubHost) > 0 {
-		if err := n.cleanUpAppliedManifestWorks(ctx, hubHost); err != nil {
+		if err := n.cleanUpAppliedManifestWorks(ctx, managedClients.appliedManifestWorkClient, hubHost); err != nil {
 			return err
 		}
 	}
@@ -520,8 +550,9 @@ func (n *klusterletController) cleanUp(ctx context.Context, controllerContext fa
 	for _, file := range crdStaticFiles {
 		err := helpers.CleanUpStaticObject(
 			ctx,
-			n.kubeClient,
-			n.apiExtensionClient,
+			// TODO(zhujian7):
+			managedClients.kubeClient,
+			managedClients.apiExtensionClient,
 			nil,
 			func(name string) ([]byte, error) {
 				template, err := manifests.KlusterletManifestFiles.ReadFile(name)
@@ -566,8 +597,8 @@ func (n *klusterletController) removeKlusterletFinalizer(ctx context.Context, de
 
 // cleanUpAppliedManifestWorks removes finalizer from the AppliedManifestWorks whose name starts with
 // the hash of the given hub host.
-func (n *klusterletController) cleanUpAppliedManifestWorks(ctx context.Context, hubHost string) error {
-	appliedManifestWorks, err := n.appliedManifestWorkClient.List(ctx, metav1.ListOptions{})
+func (n *klusterletController) cleanUpAppliedManifestWorks(ctx context.Context, appliedManifestWorkClient workv1client.AppliedManifestWorkInterface, hubHost string) error {
+	appliedManifestWorks, err := appliedManifestWorkClient.List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return fmt.Errorf("unable to list AppliedManifestWorks: %w", err)
 	}
@@ -584,7 +615,7 @@ func (n *klusterletController) cleanUpAppliedManifestWorks(ctx context.Context, 
 			continue
 		}
 
-		_, err := n.appliedManifestWorkClient.Update(ctx, &appliedManifestWork, metav1.UpdateOptions{})
+		_, err := appliedManifestWorkClient.Update(ctx, &appliedManifestWork, metav1.UpdateOptions{})
 		if err != nil && !errors.IsNotFound(err) {
 			errs = append(errs, fmt.Errorf("unable to remove finalizer from AppliedManifestWork %q: %w", appliedManifestWork.Name, err))
 		}
@@ -640,4 +671,48 @@ func getServersFromKlusterlet(klusterlet *operatorapiv1.Klusterlet) string {
 		serverString = append(serverString, server.URL)
 	}
 	return strings.Join(serverString, ",")
+}
+
+// getManagedKubeConfig is a helper func for Detached mode, it will retrive managed cluster
+// kubeconfig from "external-managed-kubeconfig" secret.
+func (n *klusterletController) getManagedKubeConfig(namespace string) (*rest.Config, error) {
+	managedKubeconfigSecret, err := n.kubeClient.CoreV1().Secrets(namespace).Get(context.TODO(), helpers.ExternalManagedKubeConfig, metav1.GetOptions{})
+	if err != nil {
+		return nil, err
+	}
+
+	return helpers.LoadClientConfigFromSecret(managedKubeconfigSecret)
+}
+
+// buildManagedClusterClients builds variety of clients for managed cluster
+func (n *klusterletController) buildManagedClusterClients(detachedMode bool, klusterletNamespace string) (
+	*managedClusterClients, error) {
+	if !detachedMode {
+		return &managedClusterClients{
+			kubeClient:                n.kubeClient,
+			apiExtensionClient:        n.apiExtensionClient,
+			appliedManifestWorkClient: n.appliedManifestWorkClient}, nil
+	}
+
+	managedKubeConfig, err := n.getManagedKubeConfig(klusterletNamespace)
+	if err != nil {
+		return nil, err
+	}
+	kubeClient, err := kubernetes.NewForConfig(managedKubeConfig)
+	if err != nil {
+		return nil, err
+	}
+	apiExtensionClient, err := apiextensionsclient.NewForConfig(managedKubeConfig)
+	if err != nil {
+		return nil, err
+	}
+	workClient, err := workclientset.NewForConfig(managedKubeConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	return &managedClusterClients{
+		kubeClient:                kubeClient,
+		apiExtensionClient:        apiExtensionClient,
+		appliedManifestWorkClient: workClient.WorkV1().AppliedManifestWorks()}, nil
 }

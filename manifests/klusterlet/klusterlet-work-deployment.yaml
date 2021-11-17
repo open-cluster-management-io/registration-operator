@@ -47,6 +47,9 @@ spec:
           - "agent"
           - "--spoke-cluster-name={{ .ClusterName }}"
           - "--hub-kubeconfig=/spoke/hub-kubeconfig/kubeconfig"
+          {{if .DetachedMode}}
+          - "--spoke-kubeconfig=/spoke/config/kubeconfig"
+          {{end}}
         securityContext:
           allowPrivilegeEscalation: false
           capabilities:
@@ -58,6 +61,11 @@ spec:
         - name: hub-kubeconfig-secret
           mountPath: "/spoke/hub-kubeconfig"
           readOnly: true
+        {{if .DetachedMode}}
+        - name: spoke-kubeconfig-secret
+          mountPath: "/spoke/config"
+          readOnly: true
+        {{end}}
         livenessProbe:
           httpGet:
             path: /healthz
@@ -79,3 +87,8 @@ spec:
       - name: hub-kubeconfig-secret
         secret:
           secretName: {{ .HubKubeConfigSecret }}
+      {{if .DetachedMode}}
+      - name: spoke-kubeconfig-secret
+        secret:
+          secretName: {{ .ExternalManagedKubeConfigSecret }}
+      {{end}}
