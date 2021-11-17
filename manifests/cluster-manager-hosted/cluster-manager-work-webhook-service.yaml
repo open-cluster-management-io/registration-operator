@@ -4,8 +4,10 @@ metadata:
   name: cluster-manager-work-webhook
   namespace: {{ .ClusterManagerNamespace }}
 spec:
-  selector:
-    app: {{ .ClusterManagerName }}-work-webhook
-  ports:
-  - port: 443
-    targetPort: 6443
+  type: ExternalName
+  externalName: hosted-control-plane
+  # selector:
+  #   app: {{ .ClusterManagerName }}-work-webhook
+  # ports:
+  # - port: 443
+  #   targetPort: 6443

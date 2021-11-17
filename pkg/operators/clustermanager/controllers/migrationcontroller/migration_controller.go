@@ -64,6 +64,7 @@ func NewCRDMigrationController(
 	clusterManagerInformer operatorinformer.ClusterManagerInformer,
 	recorder events.Recorder) factory.Controller {
 	controller := &crdMigrationController{
+		kubeclient:           kubeclient,
 		apiExtensionClient:   apiExtensionClient,
 		migrationClient:      migrationClient,
 		clusterManagerLister: clusterManagerInformer.Lister(),

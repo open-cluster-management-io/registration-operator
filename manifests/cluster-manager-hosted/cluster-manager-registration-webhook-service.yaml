@@ -4,8 +4,10 @@ metadata:
   name: cluster-manager-registration-webhook
   namespace: {{ .ClusterManagerNamespace }}
 spec:
-  selector:
-    app: {{ .ClusterManagerName }}-registration-webhook
-  ports:
-  - port: 443
-    targetPort: 6443
+  type: ExternalName
+  externalName: hosted-control-plane
+  # selector:
+  #   app: {{ .ClusterManagerName }}-registration-webhook
+  # ports:
+  # - port: 443
+  #   targetPort: 6443

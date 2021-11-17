@@ -3,6 +3,7 @@ package helpers
 import (
 	"context"
 	"fmt"
+	"time"
 
 	admissionv1 "k8s.io/api/admissionregistration/v1"
 	appsv1 "k8s.io/api/apps/v1"
@@ -332,9 +333,14 @@ func ApplyDirectly(
 			result.Result, result.Changed, result.Error = ApplyMutatingWebhookConfiguration(
 				client.AdmissionregistrationV1(), t)
 		case *apiregistrationv1.APIService:
+			t.ObjectMeta.Annotations = make(map[string]string)
+			t.ObjectMeta.Annotations["update-time"] = time.Now().String() // to trigger the update, TODO, lib-go should handle this
 			result.Result, result.Changed, result.Error = resourceapply.ApplyAPIService(apiRegistrationClient, recorder, t)
 		default:
 			genericApplyFiles = append(genericApplyFiles, file)
+		}
+		if result.Error != nil {
+			ret = append(ret, result)
 		}
 	}
 

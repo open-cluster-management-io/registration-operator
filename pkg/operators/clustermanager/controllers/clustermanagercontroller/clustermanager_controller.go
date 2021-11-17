@@ -6,22 +6,21 @@ import (
 	"fmt"
 	"time"
 
-	apiextensionsclient "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
-	"k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/meta"
-	"k8s.io/client-go/kubernetes"
-	"k8s.io/klog/v2"
-	apiregistrationclient "k8s.io/kube-aggregator/pkg/client/clientset_generated/clientset/typed/apiregistration/v1"
-
 	"github.com/openshift/library-go/pkg/assets"
 	"github.com/openshift/library-go/pkg/controller/factory"
 	"github.com/openshift/library-go/pkg/operator/events"
 	operatorhelpers "github.com/openshift/library-go/pkg/operator/v1helpers"
+	apiextensionsclient "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
+	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	appsinformer "k8s.io/client-go/informers/apps/v1"
 	corev1informers "k8s.io/client-go/informers/core/v1"
+	"k8s.io/client-go/kubernetes"
 	corev1listers "k8s.io/client-go/listers/core/v1"
+	"k8s.io/klog/v2"
+	apiregistrationclient "k8s.io/kube-aggregator/pkg/client/clientset_generated/clientset/typed/apiregistration/v1"
 
 	operatorv1client "open-cluster-management.io/api/client/operator/clientset/versioned/typed/operator/v1"
 	operatorinformer "open-cluster-management.io/api/client/operator/informers/externalversions/operator/v1"
@@ -195,7 +194,7 @@ type hubConfig struct {
 
 func (n *clusterManagerController) sync(ctx context.Context, controllerContext factory.SyncContext) error {
 	clusterManagerName := controllerContext.QueueKey()
-	klog.V(4).Infof("Reconciling ClusterManager %q", clusterManagerName)
+	klog.Infof("Reconciling ClusterManager %q", clusterManagerName)
 
 	clusterManager, err := n.clusterManagerLister.Get(clusterManagerName)
 	if errors.IsNotFound(err) {
@@ -266,11 +265,13 @@ func (n *clusterManagerController) sync(ctx context.Context, controllerContext f
 		}
 
 		// try to load ca bundle from configmap
+		clustermanagerNamespace := helpers.ClusterManagerNamespace(clusterManagerName, clusterManager.Spec.DeployOption.Mode)
 		caBundle := "placeholder"
-		configmap, err := n.configMapLister.ConfigMaps(helpers.ClusterManagerNamespace(clusterManagerName, clusterManager.Spec.DeployOption.Mode)).Get(caBundleConfigmap)
+		configmap, err := n.configMapLister.ConfigMaps(clustermanagerNamespace).Get(caBundleConfigmap)
 		switch {
 		case errors.IsNotFound(err):
 			// do nothing
+			klog.Infof("no cabundle in %s namespace", clustermanagerNamespace)
 		case err != nil:
 			return err
 		default:
@@ -496,7 +497,9 @@ func removeCRD(ctx context.Context, name string, apiExtensionClient apiextension
 	return fmt.Errorf("CRD %s is still being deleted", name)
 }
 
-func cleanUp(ctx context.Context, controllerContext factory.SyncContext, config hubConfig, kubeClient kubernetes.Interface, apiExtensionClient apiextensionsclient.Interface, apiRegistrationClient apiregistrationclient.APIServicesGetter) error {
+func cleanUp(ctx context.Context, controllerContext factory.SyncContext, config hubConfig,
+	kubeClient kubernetes.Interface, apiExtensionClient apiextensionsclient.Interface,
+	apiRegistrationClient apiregistrationclient.APIServicesGetter) error {
 	// Remove crd
 	for _, name := range crdNames {
 		err := removeCRD(ctx, name, apiExtensionClient)
