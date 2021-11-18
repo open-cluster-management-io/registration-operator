@@ -5,7 +5,7 @@ metadata:
   namespace: {{ .ClusterManagerNamespace }}
 spec:
   type: ExternalName
-  externalName: hosted-control-plane
+  externalName: management-control-plane
   # selector:
   #   app: {{ .ClusterManagerName }}-registration-webhook
   # ports:

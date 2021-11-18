@@ -42,6 +42,7 @@ spec:
       containers:
       - name: klusterlet
         image: quay.io/open-cluster-management/registration-operator:latest
+        imagePullPolicy: IfNotPresent # TOTEST
         args:
           - "/registration-operator"
           - "klusterlet"

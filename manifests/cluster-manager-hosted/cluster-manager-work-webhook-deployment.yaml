@@ -39,6 +39,7 @@ spec:
       containers:
       - name: {{ .ClusterManagerName }}-work-webhook-sa
         image: {{ .WorkImage }}
+        imagePullPolicy: IfNotPresent # For test
         args:
           - "/work"
           - "webhook"
@@ -85,4 +86,4 @@ spec:
           secretName: work-webhook-serving-cert
       - name: kubeconfig
         secret:
-          secretName: external-hub-kubeconfig
+          secretName: {{ .ClusterManagerName }}-work-webhook-sa-kubeconfig

@@ -9,7 +9,9 @@ import (
 	"github.com/openshift/library-go/pkg/assets"
 	"github.com/openshift/library-go/pkg/controller/factory"
 	"github.com/openshift/library-go/pkg/operator/events"
+	"github.com/openshift/library-go/pkg/operator/resource/resourceapply"
 	operatorhelpers "github.com/openshift/library-go/pkg/operator/v1helpers"
+	v1 "k8s.io/api/core/v1"
 	apiextensionsclient "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -238,34 +240,34 @@ func (n *clusterManagerController) sync(ctx context.Context, controllerContext f
 	if clusterManager.Spec.DeployOption.Mode == helpers.DeployModeHosted {
 		// in Hosted mode
 
-		// get clients of external-hub-cluster
-		externalHubKubeconfig, err := helpers.GetExternalKubeconfig(ctx, n.kubeClient, clusterManagerName)
+		// get clients of hosted-cluster
+		hostedAdminKubeconfig, err := helpers.GetHostedAmdinKubeconfig(ctx, n.kubeClient, clusterManagerName)
 		if err != nil {
 			return err
 		}
-		externalClient, err := kubernetes.NewForConfig(externalHubKubeconfig)
+		hostedAdminClient, err := kubernetes.NewForConfig(hostedAdminKubeconfig)
 		if err != nil {
 			return err
 		}
-		externalAPIExtensionClient, err := apiextensionsclient.NewForConfig(externalHubKubeconfig)
+		hostedAdminAPIExtensionClient, err := apiextensionsclient.NewForConfig(hostedAdminKubeconfig)
 		if err != nil {
 			return err
 		}
-		externalAPIRegistrationClient, err := apiregistrationclient.NewForConfig(externalHubKubeconfig)
+		hostedAdminAPIRegistrationClient, err := apiregistrationclient.NewForConfig(hostedAdminKubeconfig)
 		if err != nil {
 			return err
 		}
+		clustermanagerNamespace := helpers.ClusterManagerNamespace(clusterManagerName, clusterManager.Spec.DeployOption.Mode)
 
 		// ClusterManager is deleting, we remove its related resources on hub
 		if !clusterManager.DeletionTimestamp.IsZero() {
-			if err := cleanUp(ctx, controllerContext, config, externalClient, externalAPIExtensionClient, externalAPIRegistrationClient); err != nil {
+			if err := cleanUp(ctx, controllerContext, config, hostedAdminClient, hostedAdminAPIExtensionClient, hostedAdminAPIRegistrationClient); err != nil {
 				return err
 			}
 			return n.removeClusterManagerFinalizer(ctx, clusterManager)
 		}
 
 		// try to load ca bundle from configmap
-		clustermanagerNamespace := helpers.ClusterManagerNamespace(clusterManagerName, clusterManager.Spec.DeployOption.Mode)
 		caBundle := "placeholder"
 		configmap, err := n.configMapLister.ConfigMaps(clustermanagerNamespace).Get(caBundleConfigmap)
 		switch {
@@ -285,9 +287,9 @@ func (n *clusterManagerController) sync(ctx context.Context, controllerContext f
 
 		// Apply static files
 		resourceResults := helpers.ApplyDirectly(
-			externalClient,
-			externalAPIExtensionClient,
-			externalAPIRegistrationClient,
+			hostedAdminClient,
+			hostedAdminAPIExtensionClient,
+			hostedAdminAPIRegistrationClient,
 			controllerContext.Recorder(),
 			func(name string) ([]byte, error) {
 				template, err := manifests.ClusterManagerHostedManifestFiles.ReadFile(name)
@@ -325,6 +327,52 @@ func (n *clusterManagerController) sync(ctx context.Context, controllerContext f
 			if result.Error != nil {
 				errs = append(errs, fmt.Errorf("%q (%T): %v", result.File, result.Type, result.Error))
 			}
+		}
+
+		// ensure the kubeconfig secret is existed for deployments to mount
+		generateKubeconfigSecret := func(name, namespace string) func([]byte) error {
+			return func(kubeconfigContent []byte) error {
+				// generate kubeconfig here
+				_, _, err := resourceapply.ApplySecret(n.kubeClient.CoreV1(), controllerContext.Recorder(), &v1.Secret{
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: namespace,
+						Name:      name + "-kubeconfig",
+					},
+					Data: map[string][]byte{
+						"kubeconfig": kubeconfigContent,
+					},
+				})
+				return err
+			}
+		}
+
+		// registration
+		err = helpers.EnsureKubeconfigFromSA(ctx, clusterManagerName+"-registration-controller-sa", clustermanagerNamespace, hostedAdminKubeconfig,
+			generateKubeconfigSecret(clusterManagerName+"-registration-controller-sa", clustermanagerNamespace),
+			hostedAdminClient, n.kubeClient)
+		if err != nil {
+			return err
+		}
+		// registraion-webhook
+		err = helpers.EnsureKubeconfigFromSA(ctx, clusterManagerName+"-registration-webhook-sa", clustermanagerNamespace, hostedAdminKubeconfig,
+			generateKubeconfigSecret(clusterManagerName+"-registration-webhook-sa", clustermanagerNamespace),
+			hostedAdminClient, n.kubeClient)
+		if err != nil {
+			return err
+		}
+		// work-webhook
+		err = helpers.EnsureKubeconfigFromSA(ctx, clusterManagerName+"-work-webhook-sa", clustermanagerNamespace, hostedAdminKubeconfig,
+			generateKubeconfigSecret(clusterManagerName+"-work-webhook-sa", clustermanagerNamespace),
+			hostedAdminClient, n.kubeClient)
+		if err != nil {
+			return err
+		}
+		// placement
+		err = helpers.EnsureKubeconfigFromSA(ctx, clusterManagerName+"-placement-controller-sa", clustermanagerNamespace, hostedAdminKubeconfig,
+			generateKubeconfigSecret(clusterManagerName+"-placement-controller-sa", clustermanagerNamespace),
+			hostedAdminClient, n.kubeClient)
+		if err != nil {
+			return err
 		}
 
 		// Render deployment manifest and apply

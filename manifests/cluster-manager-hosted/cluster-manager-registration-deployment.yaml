@@ -39,6 +39,7 @@ spec:
       containers:
       - name: hub-registration-controller
         image: {{ .RegistrationImage }}
+        imagePullPolicy: IfNotPresent # For test
         args:
           - "/registration"
           - "controller"
@@ -74,4 +75,4 @@ spec:
       volumes:
       - name: kubeconfig
         secret:
-          secretName: external-hub-kubeconfig
+          secretName: {{ .ClusterManagerName }}-registration-controller-sa-kubeconfig

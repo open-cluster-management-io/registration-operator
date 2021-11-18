@@ -10,3 +10,4 @@ spec:
   ports:
     - port: 8082
       targetPort: 6443
+      nodePort: 31766

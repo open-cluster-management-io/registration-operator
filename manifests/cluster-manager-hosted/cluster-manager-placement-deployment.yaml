@@ -39,6 +39,7 @@ spec:
       containers:
       - name: placement-controller
         image: {{ .PlacementImage }}
+        imagePullPolicy: IfNotPresent # For test
         args:
           - "/placement"
           - "controller"
@@ -74,4 +75,4 @@ spec:
       volumes:
       - name: kubeconfig
         secret:
-          secretName: external-hub-kubeconfig
+          secretName: {{ .ClusterManagerName }}-placement-controller-sa-kubeconfig

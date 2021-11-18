@@ -42,6 +42,7 @@ spec:
       containers:
       - name: registration-controller
         image: {{ .RegistrationImage }}
+        imagePullPolicy: IfNotPresent # TOTEST
         args:
           - "/registration"
           - "agent"

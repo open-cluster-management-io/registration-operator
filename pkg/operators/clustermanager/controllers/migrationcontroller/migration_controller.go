@@ -93,7 +93,7 @@ func (c *crdMigrationController) sync(ctx context.Context, controllerContext fac
 
 	if clusterManager.Spec.DeployOption.Mode == helpers.DeployModeHosted {
 		// get external-kubeconfig
-		externalHubKubeconfig, err := helpers.GetExternalKubeconfig(ctx, c.kubeclient, clusterManagerName)
+		externalHubKubeconfig, err := helpers.GetHostedAmdinKubeconfig(ctx, c.kubeclient, clusterManagerName)
 		if err != nil {
 			return err
 		}

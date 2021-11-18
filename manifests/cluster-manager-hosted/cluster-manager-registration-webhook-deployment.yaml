@@ -39,6 +39,7 @@ spec:
       containers:
       - name: {{ .ClusterManagerName }}-registration-webhook-sa
         image: {{ .RegistrationImage }}
+        imagePullPolicy: IfNotPresent # For test
         args:
           - "/registration"
           - "webhook"
@@ -85,4 +86,4 @@ spec:
           secretName: registration-webhook-serving-cert
       - name: kubeconfig
         secret:
-          secretName: external-hub-kubeconfig
+          secretName: {{ .ClusterManagerName }}-registration-webhook-sa-kubeconfig

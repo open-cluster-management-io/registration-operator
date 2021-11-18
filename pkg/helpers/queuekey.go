@@ -32,7 +32,7 @@ const (
 	DeployModeDefault = "Default"
 	DeployModeHosted  = "Hosted"
 
-	ExternalHubKubeconfig = "external-hub-kubeconfig"
+	ExternalHubKubeconfig = "hosted-kubeconfig"
 )
 
 func ClusterManagerNamespaceWithDefaultMode(clustermanagername string) string {

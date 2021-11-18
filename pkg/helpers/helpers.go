@@ -2,8 +2,8 @@ package helpers
 
 import (
 	"context"
+	"crypto/md5"
 	"fmt"
-	"time"
 
 	admissionv1 "k8s.io/api/admissionregistration/v1"
 	appsv1 "k8s.io/api/apps/v1"
@@ -334,7 +334,8 @@ func ApplyDirectly(
 				client.AdmissionregistrationV1(), t)
 		case *apiregistrationv1.APIService:
 			t.ObjectMeta.Annotations = make(map[string]string)
-			t.ObjectMeta.Annotations["update-time"] = time.Now().String() // to trigger the update, TODO, lib-go should handle this
+			checksum := md5.Sum(t.Spec.CABundle)
+			t.ObjectMeta.Annotations["caBundle-checksum"] = string(checksum[:]) // to trigger the update when caBundle changed
 			result.Result, result.Changed, result.Error = resourceapply.ApplyAPIService(apiRegistrationClient, recorder, t)
 		default:
 			genericApplyFiles = append(genericApplyFiles, file)
@@ -486,8 +487,8 @@ func DetermineReplicaByNodes(ctx context.Context, kubeClient kubernetes.Interfac
 	return defaultReplica
 }
 
-// GetExternalKubeclient is used when deploy mode is Hosted. It returns kubeconfig of the external-hub-cluster.
-func GetExternalKubeconfig(ctx context.Context, kubeClient kubernetes.Interface, clustermanager string) (*restclient.Config, error) {
+// GetHostedAmdinKubeconfig is used when deploy mode is Hosted. It returns kubeconfig of the external-hub-cluster.
+func GetHostedAmdinKubeconfig(ctx context.Context, kubeClient kubernetes.Interface, clustermanager string) (*restclient.Config, error) {
 	namespace := ClusterManagerNamespace(clustermanager, DeployModeHosted)
 
 	// check if the namespace exist
