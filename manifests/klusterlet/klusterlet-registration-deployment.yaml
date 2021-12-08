@@ -99,5 +99,5 @@ spec:
       {{if .DetachedMode}}
       - name: spoke-kubeconfig-secret
         secret:
-          secretName: {{ .ExternalManagedKubeConfigSecret }}
+          secretName: {{ .ExternalManagedKubeConfigRegistrationSecret }}
       {{end}}
