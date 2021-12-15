@@ -252,7 +252,7 @@ func (n *klusterletController) sync(ctx context.Context, controllerContext facto
 			resourceapply.NewKubeClientHolder(managedClusterClients.kubeClient),
 			controllerContext.Recorder(),
 			func(name string) ([]byte, error) {
-				template, err := manifests.Klusterlet111ManifestFiles.ReadFile(name)
+				template, err := manifests.KlusterletManifestFiles.ReadFile(name)
 				if err != nil {
 					return nil, err
 				}

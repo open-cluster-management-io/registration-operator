@@ -6,7 +6,8 @@ import "embed"
 var ClusterManagerManifestFiles embed.FS
 
 //go:embed klusterlet
+//go:embed klusterlet/detached
+//go:embed klusterletkube111
 var KlusterletManifestFiles embed.FS
 
-//go:embed klusterletkube111
-var Klusterlet111ManifestFiles embed.FS
+// var Klusterlet111ManifestFiles embed.FS
