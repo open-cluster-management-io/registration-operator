@@ -411,8 +411,9 @@ func TestSyncDeploy(t *testing.T) {
 	}
 
 	// Check if resources are created as expected
-	if len(createObjects) != 12 {
-		t.Errorf("Expect 12 objects created in the sync loop, actual %d", len(createObjects))
+	// 7 managed static manifests + 8 management static manifests - 2 duplicated service account manifests + 1 addon namespace + 2 deployments
+	if len(createObjects) != 16 {
+		t.Errorf("Expect 17 objects created in the sync loop, actual %d", len(createObjects))
 	}
 	for _, object := range createObjects {
 		ensureObject(t, object, klusterlet)
@@ -460,21 +461,21 @@ func TestSyncDeployDetached(t *testing.T) {
 		t.Errorf("Expected non error when sync, %v", err)
 	}
 
-	createObjects := []runtime.Object{}
+	createObjectsManagement := []runtime.Object{}
 	kubeActions := controller.kubeClient.Actions()
 	for _, action := range kubeActions {
 		if action.GetVerb() == "create" {
 			object := action.(clienttesting.CreateActionImpl).Object
-			klog.Infof("kube create: %v\t resource:%v \t subresource:%v \t namespace:%v verb:%v ", object.GetObjectKind(), action.GetResource(), action.GetSubresource(), action.GetNamespace(), action.GetVerb())
-			createObjects = append(createObjects, object)
+			klog.Infof("kube create: %v\t resource:%v \t namespace:%v", object.GetObjectKind(), action.GetResource(), action.GetNamespace())
+			createObjectsManagement = append(createObjectsManagement, object)
 		}
 	}
 	// Check if resources are created as expected on the management cluster
 	// 8 static manifests + 2 secrets(external-managed-kubeconfig-registration,external-managed-kubeconfig-work) + 2 deployments(registration-agent,work-agent)
-	if len(createObjects) != 12 {
-		t.Errorf("Expect 12 objects created in the sync loop, actual %d", len(createObjects))
+	if len(createObjectsManagement) != 12 {
+		t.Errorf("Expect 12 objects created in the sync loop, actual %d", len(createObjectsManagement))
 	}
-	for _, object := range createObjects {
+	for _, object := range createObjectsManagement {
 		ensureObject(t, object, klusterlet)
 	}
 
@@ -483,15 +484,14 @@ func TestSyncDeployDetached(t *testing.T) {
 		if action.GetVerb() == "create" {
 
 			object := action.(clienttesting.CreateActionImpl).Object
-			klog.Infof("managed kube create: %v\t resource:%v \t subresource:%v \t namespace:%v verb:%v ", object.GetObjectKind().GroupVersionKind(), action.GetResource(), action.GetSubresource(), action.GetNamespace(), action.GetVerb())
-
+			klog.Infof("managed kube create: %v\t resource:%v \t namespace:%v", object.GetObjectKind().GroupVersionKind(), action.GetResource(), action.GetNamespace())
 			createObjectsManaged = append(createObjectsManaged, object)
 		}
 	}
 	// Check if resources are created as expected on the managed cluster
-	// 11 static manifests
-	if len(createObjectsManaged) != 11 {
-		t.Errorf("Expect 11 objects created in the sync loop, actual %d", len(createObjectsManaged))
+	// 7 static manifests + 2 namespaces
+	if len(createObjectsManaged) != 9 {
+		t.Errorf("Expect 9 objects created in the sync loop, actual %d", len(createObjectsManaged))
 	}
 	for _, object := range createObjectsManaged {
 		ensureObject(t, object, klusterlet)
@@ -548,7 +548,7 @@ func TestSyncDelete(t *testing.T) {
 	controller := newTestController(klusterlet, appliedManifestWorks, namespace, bootstrapKubeConfigSecret)
 	syncContext := testinghelper.NewFakeSyncContext(t, "klusterlet")
 
-	err := controller.controller.sync(nil, syncContext)
+	err := controller.controller.sync(context.TODO(), syncContext)
 	if err != nil {
 		t.Errorf("Expected non error when sync, %v", err)
 	}
@@ -558,12 +558,14 @@ func TestSyncDelete(t *testing.T) {
 	for _, action := range kubeActions {
 		if action.GetVerb() == "delete" {
 			deleteAction := action.(clienttesting.DeleteActionImpl)
+			klog.Infof("kube delete name: %v\t resource:%v \t namespace:%v", deleteAction.Name, deleteAction.GetResource(), deleteAction.GetNamespace())
 			deleteActions = append(deleteActions, deleteAction)
 		}
 	}
 
-	if len(deleteActions) != 14 {
-		t.Errorf("Expected 14 delete actions, but got %d", len(deleteActions))
+	// 7 managed static manifests + 8 management static manifests + 1 hub kubeconfig + 2 namespaces + 2 deployments
+	if len(deleteActions) != 20 {
+		t.Errorf("Expected 20 delete actions, but got %d", len(deleteActions))
 	}
 
 	deleteCRDActions := []clienttesting.DeleteActionImpl{}
@@ -589,6 +591,7 @@ func TestSyncDelete(t *testing.T) {
 		}
 	}
 
+	// update 1 appliedminifestwork to remove appliedManifestWorkFinalizer
 	if len(updateWorkActions) != 1 {
 		t.Errorf("Expected 1 update action, but got %d", len(updateWorkActions))
 	}
@@ -647,7 +650,9 @@ func TestClusterNameChange(t *testing.T) {
 	hubSecret.Data["cluster-name"] = []byte("cluster1")
 	controller := newTestController(klusterlet, nil, bootStrapSecret, hubSecret, namespace)
 	syncContext := testinghelper.NewFakeSyncContext(t, "klusterlet")
-	err := controller.controller.sync(nil, syncContext)
+
+	ctx := context.TODO()
+	err := controller.controller.sync(ctx, syncContext)
 	if err != nil {
 		t.Errorf("Expected non error when sync, %v", err)
 	}
@@ -676,7 +681,7 @@ func TestClusterNameChange(t *testing.T) {
 	klusterlet.Generation = 1
 	controller.operatorStore.Update(klusterlet)
 
-	err = controller.controller.sync(nil, syncContext)
+	err = controller.controller.sync(ctx, syncContext)
 	if err != nil {
 		t.Errorf("Expected non error when sync, %v", err)
 	}
@@ -729,7 +734,7 @@ func TestSyncWithPullSecret(t *testing.T) {
 	controller := newTestController(klusterlet, nil, bootStrapSecret, hubKubeConfigSecret, namespace, pullSecret)
 	syncContext := testinghelper.NewFakeSyncContext(t, "klusterlet")
 
-	err := controller.controller.sync(nil, syncContext)
+	err := controller.controller.sync(context.TODO(), syncContext)
 	if err != nil {
 		t.Errorf("Expected non error when sync, %v", err)
 	}
@@ -760,7 +765,8 @@ func TestDeployOnKube111(t *testing.T) {
 	controller.controller.kubeVersion = kubeVersion
 	syncContext := testinghelper.NewFakeSyncContext(t, "klusterlet")
 
-	err := controller.controller.sync(nil, syncContext)
+	ctx := context.TODO()
+	err := controller.controller.sync(ctx, syncContext)
 	if err != nil {
 		t.Errorf("Expected non error when sync, %v", err)
 	}
@@ -775,8 +781,9 @@ func TestDeployOnKube111(t *testing.T) {
 	}
 
 	// Check if resources are created as expected
-	if len(createObjects) != 14 {
-		t.Errorf("Expect 14 objects created in the sync loop, actual %d", len(createObjects))
+	// 7 managed static manifests + 8 management static manifests - 2 duplicated service account manifests + 1 addon namespace + 2 deployments + 2 kube111 clusterrolebindings
+	if len(createObjects) != 18 {
+		t.Errorf("Expect 18 objects created in the sync loop, actual %d", len(createObjects))
 	}
 	for _, object := range createObjects {
 		ensureObject(t, object, klusterlet)
@@ -798,7 +805,7 @@ func TestDeployOnKube111(t *testing.T) {
 	klusterlet.ObjectMeta.SetDeletionTimestamp(&now)
 	controller.operatorStore.Update(klusterlet)
 	controller.kubeClient.ClearActions()
-	err = controller.controller.sync(nil, syncContext)
+	err = controller.controller.sync(ctx, syncContext)
 	if err != nil {
 		t.Errorf("Expected non error when sync, %v", err)
 	}
@@ -812,8 +819,9 @@ func TestDeployOnKube111(t *testing.T) {
 		}
 	}
 
-	if len(deleteActions) != 16 {
-		t.Errorf("Expected 16 delete actions, but got %d", len(kubeActions))
+	// 7 managed static manifests + 8 management static manifests + 1 hub kubeconfig + 2 namespaces + 2 deployments + 2 kube111 clusterrolebindings
+	if len(deleteActions) != 22 {
+		t.Errorf("Expected 22 delete actions, but got %d", len(kubeActions))
 	}
 }
 

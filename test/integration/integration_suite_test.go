@@ -8,15 +8,15 @@ import (
 
 	"github.com/onsi/ginkgo"
 	"github.com/onsi/gomega"
+
+	apiextensionsclient "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
-
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	"sigs.k8s.io/controller-runtime/pkg/envtest/printer"
-	"sigs.k8s.io/controller-runtime/pkg/log/zap"
-
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	operatorclient "open-cluster-management.io/api/client/operator/clientset/versioned"
 	operatorapiv1 "open-cluster-management.io/api/operator/v1"
@@ -40,6 +40,8 @@ const (
 var testEnv *envtest.Environment
 
 var kubeClient kubernetes.Interface
+
+var apiExtensionClient apiextensionsclient.Interface
 
 var restConfig *rest.Config
 
@@ -73,6 +75,11 @@ var _ = ginkgo.BeforeSuite(func(done ginkgo.Done) {
 	kubeClient, err = kubernetes.NewForConfig(cfg)
 	gomega.Expect(err).ToNot(gomega.HaveOccurred())
 	gomega.Expect(kubeClient).ToNot(gomega.BeNil())
+
+	apiExtensionClient, err = apiextensionsclient.NewForConfig(cfg)
+	gomega.Expect(err).ToNot(gomega.HaveOccurred())
+	gomega.Expect(apiExtensionClient).ToNot(gomega.BeNil())
+
 	operatorClient, err = operatorclient.NewForConfig(cfg)
 	gomega.Expect(err).ToNot(gomega.HaveOccurred())
 	gomega.Expect(kubeClient).ToNot(gomega.BeNil())

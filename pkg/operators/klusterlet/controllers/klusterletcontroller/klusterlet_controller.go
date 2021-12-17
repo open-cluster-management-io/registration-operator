@@ -49,36 +49,34 @@ const (
 
 var (
 	crdV1StaticFiles = []string{
-		"klusterlet/0000_01_work.open-cluster-management.io_appliedmanifestworks.crd.yaml",
-		"klusterlet/0000_02_clusters.open-cluster-management.io_clusterclaims.crd.yaml",
+		"klusterlet/managed/0000_01_work.open-cluster-management.io_appliedmanifestworks.crd.yaml",
+		"klusterlet/managed/0000_02_clusters.open-cluster-management.io_clusterclaims.crd.yaml",
 	}
 
 	crdV1beta1StaticFiles = []string{
-		"klusterlet/0001_01_work.open-cluster-management.io_appliedmanifestworks.crd.yaml",
-		"klusterlet/0001_02_clusters.open-cluster-management.io_clusterclaims.crd.yaml",
+		"klusterlet/managed/0001_01_work.open-cluster-management.io_appliedmanifestworks.crd.yaml",
+		"klusterlet/managed/0001_02_clusters.open-cluster-management.io_clusterclaims.crd.yaml",
 	}
 
-	staticResourceFiles = []string{
-		"klusterlet/klusterlet-registration-serviceaccount.yaml",
-		"klusterlet/klusterlet-registration-clusterrole.yaml",
-		"klusterlet/klusterlet-registration-clusterrolebinding.yaml",
-		"klusterlet/klusterlet-registration-role.yaml",
-		"klusterlet/klusterlet-registration-rolebinding.yaml",
-		"klusterlet/klusterlet-work-serviceaccount.yaml",
-		"klusterlet/klusterlet-work-clusterrole.yaml",
-		"klusterlet/klusterlet-work-clusterrolebinding.yaml",
-		"klusterlet/klusterlet-work-clusterrolebinding-addition.yaml",
+	managedStaticResourceFiles = []string{
+		"klusterlet/managed/klusterlet-registration-serviceaccount.yaml",
+		"klusterlet/managed/klusterlet-registration-clusterrole.yaml",
+		"klusterlet/managed/klusterlet-registration-clusterrolebinding.yaml",
+		"klusterlet/managed/klusterlet-work-serviceaccount.yaml",
+		"klusterlet/managed/klusterlet-work-clusterrole.yaml",
+		"klusterlet/managed/klusterlet-work-clusterrolebinding.yaml",
+		"klusterlet/managed/klusterlet-work-clusterrolebinding-addition.yaml",
 	}
 
-	detachedStaticResourceFiles = []string{
-		"klusterlet/detached/klusterlet-registration-serviceaccount-management.yaml",
-		"klusterlet/detached/klusterlet-registration-role-management.yaml",
-		"klusterlet/detached/klusterlet-registration-rolebinding-management.yaml",
-		"klusterlet/detached/klusterlet-registration-rolebinding-extension-apiserver-management.yaml",
-		"klusterlet/detached/klusterlet-work-serviceaccount-management.yaml",
-		"klusterlet/detached/klusterlet-work-role-management.yaml",
-		"klusterlet/detached/klusterlet-work-rolebinding-management.yaml",
-		"klusterlet/detached/klusterlet-work-rolebinding-extension-apiserver-management.yaml",
+	managementStaticResourceFiles = []string{
+		"klusterlet/management/klusterlet-registration-serviceaccount.yaml",
+		"klusterlet/management/klusterlet-registration-role.yaml",
+		"klusterlet/management/klusterlet-registration-rolebinding.yaml",
+		"klusterlet/management/klusterlet-registration-rolebinding-extension-apiserver.yaml",
+		"klusterlet/management/klusterlet-work-serviceaccount.yaml",
+		"klusterlet/management/klusterlet-work-role.yaml",
+		"klusterlet/management/klusterlet-work-rolebinding.yaml",
+		"klusterlet/management/klusterlet-work-rolebinding-extension-apiserver.yaml",
 	}
 
 	kube111StaticResourceFiles = []string{
@@ -167,7 +165,7 @@ func (n *klusterletController) sync(ctx context.Context, controllerContext facto
 	klog.V(4).Infof("Reconciling Klusterlet %q", klusterletName)
 	klusterlet, err := n.klusterletLister.Get(klusterletName)
 	if errors.IsNotFound(err) {
-		// AgentCore not found, could have been deleted, do nothing.
+		// Klusterlet not found, could have been deleted, do nothing.
 		return nil
 	}
 	if err != nil {
@@ -249,7 +247,7 @@ func (n *klusterletController) sync(ctx context.Context, controllerContext facto
 
 	if detachedMode {
 		// In detached mode, we should ensure the namespace on the managed cluster since
-		// some resources(eg:role, rolebinding) are still deployed on managed cluster.
+		// some resources(eg:service account) are still deployed on managed cluster.
 		err := n.ensureNamespace(ctx, managedClusterClients.kubeClient, klusterletName, config.KlusterletNamespace)
 		if err != nil {
 			return err
@@ -260,52 +258,95 @@ func (n *klusterletController) sync(ctx context.Context, controllerContext facto
 	// If kube version is less than 1.12, deploy static resource for kube 1.11 at first
 	// TODO remove this when we do not support kube 1.11 any longer
 	if cnt, err := n.kubeVersion.Compare("v1.12.0"); err == nil && cnt < 0 {
-		errs := []error{}
-		resourceResult := resourceapply.ApplyDirectly(
-			resourceapply.NewKubeClientHolder(managedClusterClients.kubeClient),
-			controllerContext.Recorder(),
-			func(name string) ([]byte, error) {
-				template, err := manifests.KlusterletManifestFiles.ReadFile(name)
-				if err != nil {
-					return nil, err
-				}
-				objData := assets.MustCreateAssetFromTemplate(name, template, config).Data
-				helpers.SetRelatedResourcesStatusesWithObj(&relatedResources, objData)
-				return objData, nil
-			},
-			kube111StaticResourceFiles...,
-		)
-		for _, result := range resourceResult {
-			if result.Error != nil {
-				errs = append(errs, fmt.Errorf("%q (%T): %v", result.File, result.Type, result.Error))
-			}
+		statuses, err := n.applyStaticFiles(ctx, klusterletName, kube111StaticResourceFiles, &config, managedClusterClients.kubeClient,
+			managedClusterClients.apiExtensionClient, controllerContext.Recorder())
+		if err != nil {
+			return err
 		}
-
-		if len(errs) > 0 {
-			applyErrors := operatorhelpers.NewMultiLineAggregate(errs)
-			_, _, _ = helpers.UpdateKlusterletStatus(ctx, n.klusterletClient, klusterletName, helpers.UpdateKlusterletConditionFn(metav1.Condition{
-				Type: klusterletApplied, Status: metav1.ConditionFalse, Reason: "KlusterletApplyFailed",
-				Message: applyErrors.Error(),
-			}))
-			return applyErrors
-		}
+		relatedResources = append(relatedResources, statuses...)
 	}
 
-	// Apply static files
+	// Apply static files on managed cluster
 	var appliedStaticFiles []string
 	// CRD v1beta1 was deprecated from k8s 1.16.0 and will be removed in k8s 1.22
 	if cnt, err := n.kubeVersion.Compare("v1.16.0"); err == nil && cnt < 0 {
-		appliedStaticFiles = append(crdV1beta1StaticFiles, staticResourceFiles...)
+		appliedStaticFiles = append(crdV1beta1StaticFiles, managedStaticResourceFiles...)
 	} else {
-		appliedStaticFiles = append(crdV1StaticFiles, staticResourceFiles...)
+		appliedStaticFiles = append(crdV1StaticFiles, managedStaticResourceFiles...)
 	}
-	err = n.applyStaticFiles(ctx, klusterletName, appliedStaticFiles, &relatedResources, &config, managedClusterClients.kubeClient,
+	statuses, err := n.applyStaticFiles(ctx, klusterletName, appliedStaticFiles, &config, managedClusterClients.kubeClient,
 		managedClusterClients.apiExtensionClient, controllerContext.Recorder())
 	if err != nil {
 		return err
 	}
+	relatedResources = append(relatedResources, statuses...)
 
 	// Create hub config secret
+	hubSecret, err := n.ensureHubKubeconfigSecret(ctx, &config)
+	if err != nil {
+		return err
+	}
+
+	// Apply static files on management cluster
+	// Apply role, rolebinding, service account for registration and work to the management cluster.
+	statuses, err = n.applyStaticFiles(ctx, klusterletName, managementStaticResourceFiles, &config, n.kubeClient,
+		n.apiExtensionClient, controllerContext.Recorder())
+	if err != nil {
+		return err
+	}
+	relatedResources = append(relatedResources, statuses...)
+
+	if detachedMode {
+		// create managed config secret for registration and work.
+		err = n.createManagedClusterKubeconfig(ctx, klusterletName, config.KlusterletNamespace, registrationServiceAccountName(klusterletName), config.ExternalManagedKubeConfigRegistrationSecret,
+			managedClusterClients.kubeconfig, managedClusterClients.kubeClient, n.kubeClient.CoreV1(), controllerContext.Recorder())
+		if err != nil {
+			return err
+		}
+		err := n.createManagedClusterKubeconfig(ctx, klusterletName, config.KlusterletNamespace, workServiceAccountName(klusterletName), config.ExternalManagedKubeConfigWorkSecret,
+			managedClusterClients.kubeconfig, managedClusterClients.kubeClient, n.kubeClient.CoreV1(), controllerContext.Recorder())
+		if err != nil {
+			return err
+		}
+	}
+	// Deploy registration agent
+	statuses, registrationGeneration, err := n.applyDeployment(ctx, klusterlet, &config, "klusterlet/management/klusterlet-registration-deployment.yaml", controllerContext.Recorder())
+	if err != nil {
+		return err
+	}
+	relatedResources = append(relatedResources, statuses...)
+
+	// If cluster name is empty, read cluster name from hub config secret
+	if config.ClusterName == "" {
+		clusterName := hubSecret.Data["cluster-name"]
+		if clusterName != nil {
+			config.ClusterName = string(clusterName)
+		}
+	}
+	// Deploy work agent
+	statuses, workGeneration, err := n.applyDeployment(ctx, klusterlet, &config, "klusterlet/management/klusterlet-work-deployment.yaml", controllerContext.Recorder())
+	if err != nil {
+		return err
+	}
+	relatedResources = append(relatedResources, statuses...)
+
+	// if we get here, we have successfully applied everything and should indicate that
+	_, _, _ = helpers.UpdateKlusterletStatus(ctx, n.klusterletClient, klusterletName,
+		helpers.UpdateKlusterletConditionFn(metav1.Condition{
+			Type: klusterletApplied, Status: metav1.ConditionTrue, Reason: "KlusterletApplied",
+			Message: "Klusterlet Component Applied"}),
+		helpers.UpdateKlusterletGenerationsFn(registrationGeneration, workGeneration),
+		helpers.UpdateKlusterletRelatedResourcesFn(relatedResources...),
+		func(oldStatus *operatorapiv1.KlusterletStatus) error {
+			oldStatus.ObservedGeneration = klusterlet.Generation
+			return nil
+		},
+	)
+	return nil
+}
+
+// ensureHubKubeconfigSecret will create a placeholder hub kubeconfig if it is not exist.
+func (n *klusterletController) ensureHubKubeconfigSecret(ctx context.Context, config *klusterletConfig) (*corev1.Secret, error) {
 	hubSecret, err := n.kubeClient.CoreV1().Secrets(config.KlusterletNamespace).Get(ctx, helpers.HubKubeConfig, metav1.GetOptions{})
 	switch {
 	case errors.IsNotFound(err):
@@ -319,42 +360,27 @@ func (n *klusterletController) sync(ctx context.Context, controllerContext facto
 		}
 		hubSecret, err = n.kubeClient.CoreV1().Secrets(config.KlusterletNamespace).Create(ctx, hubSecret, metav1.CreateOptions{})
 		if err != nil {
-			_, _, _ = helpers.UpdateKlusterletStatus(ctx, n.klusterletClient, klusterletName, helpers.UpdateKlusterletConditionFn(metav1.Condition{
+			_, _, _ = helpers.UpdateKlusterletStatus(ctx, n.klusterletClient, config.KlusterletName, helpers.UpdateKlusterletConditionFn(metav1.Condition{
 				Type: klusterletApplied, Status: metav1.ConditionFalse, Reason: "KlusterletApplyFailed",
 				Message: fmt.Sprintf("Failed to create hub kubeconfig secret -n %q %q: %v", hubSecret.Namespace, hubSecret.Name, err),
 			}))
-			return err
+			return hubSecret, err
 		}
 	case err != nil:
-		_, _, _ = helpers.UpdateKlusterletStatus(ctx, n.klusterletClient, klusterletName, helpers.UpdateKlusterletConditionFn(metav1.Condition{
+		_, _, _ = helpers.UpdateKlusterletStatus(ctx, n.klusterletClient, config.KlusterletName, helpers.UpdateKlusterletConditionFn(metav1.Condition{
 			Type: klusterletApplied, Status: metav1.ConditionFalse, Reason: "KlusterletApplyFailed",
 			Message: fmt.Sprintf("Failed to get hub kubeconfig secret with error %v", err),
 		}))
-		return err
+		return hubSecret, err
 	}
+	return hubSecret, nil
+}
 
-	if detachedMode {
-		// In Deatched mode, apply role, rolebinding, service account for registration and work to the management cluster.
-		err = n.applyStaticFiles(ctx, klusterletName, detachedStaticResourceFiles, &relatedResources, &config, n.kubeClient,
-			n.apiExtensionClient, controllerContext.Recorder())
-		if err != nil {
-			return err
-		}
-
-		// create managed config secret for registration and work.
-		err = n.createManagedClusterKubeconfig(ctx, klusterletName, config.KlusterletNamespace, registrationServiceAccountName(klusterletName), config.ExternalManagedKubeConfigRegistrationSecret,
-			managedClusterClients.kubeconfig, managedClusterClients.kubeClient, n.kubeClient.CoreV1(), controllerContext.Recorder())
-		if err != nil {
-			return err
-		}
-
-		if err := n.createManagedClusterKubeconfig(ctx, klusterletName, config.KlusterletNamespace, workServiceAccountName(klusterletName), config.ExternalManagedKubeConfigWorkSecret,
-			managedClusterClients.kubeconfig, managedClusterClients.kubeClient, n.kubeClient.CoreV1(), controllerContext.Recorder()); err != nil {
-			return err
-		}
-	}
-	// Deploy registration agent
-	registrationGeneration, err := helpers.ApplyDeployment(
+// applyDeployment applies deployment on the management cluster
+func (n *klusterletController) applyDeployment(ctx context.Context, klusterlet *operatorapiv1.Klusterlet, config *klusterletConfig, deploymentFile string, recorder events.Recorder) (
+	[]operatorapiv1.RelatedResourceMeta, operatorapiv1.GenerationStatus, error) {
+	var relatedResources []operatorapiv1.RelatedResourceMeta
+	generationStatus, err := helpers.ApplyDeployment(
 		n.kubeClient,
 		klusterlet.Status.Generations,
 		klusterlet.Spec.NodePlacement,
@@ -367,73 +393,30 @@ func (n *klusterletController) sync(ctx context.Context, controllerContext facto
 			helpers.SetRelatedResourcesStatusesWithObj(&relatedResources, objData)
 			return objData, nil
 		},
-		controllerContext.Recorder(),
-		"klusterlet/klusterlet-registration-deployment.yaml")
+		recorder,
+		deploymentFile)
 	if err != nil {
-		_, _, _ = helpers.UpdateKlusterletStatus(ctx, n.klusterletClient, klusterletName, helpers.UpdateKlusterletConditionFn(metav1.Condition{
+		_, _, _ = helpers.UpdateKlusterletStatus(ctx, n.klusterletClient, klusterlet.Name, helpers.UpdateKlusterletConditionFn(metav1.Condition{
 			Type: klusterletApplied, Status: metav1.ConditionFalse, Reason: "KlusterletApplyFailed",
-			Message: fmt.Sprintf("Failed to deploy registration deployment with error %v", err),
+			Message: fmt.Sprintf("Failed to deploy %s deployment with error %v", deploymentFile, err),
 		}))
-		return err
+		return relatedResources, generationStatus, err
 	}
 
-	// If cluster name is empty, read cluster name from hub config secret
-	if config.ClusterName == "" {
-		clusterName := hubSecret.Data["cluster-name"]
-		if clusterName != nil {
-			config.ClusterName = string(clusterName)
-		}
-	}
-
-	// Deploy work agent
-	workGeneration, err := helpers.ApplyDeployment(
-		n.kubeClient,
-		klusterlet.Status.Generations,
-		klusterlet.Spec.NodePlacement,
-		func(name string) ([]byte, error) {
-			template, err := manifests.KlusterletManifestFiles.ReadFile(name)
-			if err != nil {
-				return nil, err
-			}
-			objData := assets.MustCreateAssetFromTemplate(name, template, config).Data
-			helpers.SetRelatedResourcesStatusesWithObj(&relatedResources, objData)
-			return objData, nil
-		},
-		controllerContext.Recorder(),
-		"klusterlet/klusterlet-work-deployment.yaml")
-	if err != nil {
-		_, _, _ = helpers.UpdateKlusterletStatus(ctx, n.klusterletClient, klusterletName, helpers.UpdateKlusterletConditionFn(metav1.Condition{
-			Type: klusterletApplied, Status: metav1.ConditionFalse, Reason: "KlusterletApplyFailed",
-			Message: fmt.Sprintf("Failed to deploy work deployment with error %v", err),
-		}))
-		return err
-	}
-	observedKlusterletGeneration := klusterlet.Generation
-
-	// if we get here, we have successfully applied everything and should indicate that
-	_, _, _ = helpers.UpdateKlusterletStatus(ctx, n.klusterletClient, klusterletName,
-		helpers.UpdateKlusterletConditionFn(metav1.Condition{
-			Type: klusterletApplied, Status: metav1.ConditionTrue, Reason: "KlusterletApplied",
-			Message: "Klusterlet Component Applied"}),
-		helpers.UpdateKlusterletGenerationsFn(registrationGeneration, workGeneration),
-		helpers.UpdateKlusterletRelatedResourcesFn(relatedResources...),
-		func(oldStatus *operatorapiv1.KlusterletStatus) error {
-			oldStatus.ObservedGeneration = observedKlusterletGeneration
-			return nil
-		},
-	)
-	return nil
+	return relatedResources, generationStatus, nil
 }
 
 // applyStaticFiles applies files using destKubeclient nad destApiExtensionClient.
 // resource status will be saved in the relatedResourcesStatuses, and will save the
 // result to the klusterlet status if there is any error.
 func (n *klusterletController) applyStaticFiles(ctx context.Context, klusterletName string,
-	staticFiles []string, relatedResourcesStatuses *[]operatorapiv1.RelatedResourceMeta,
+	staticFiles []string,
 	config *klusterletConfig,
 	destKubeclient kubernetes.Interface, destApiExtensionClient apiextensionsclient.Interface,
-	recorder events.Recorder) error {
+	recorder events.Recorder) ([]operatorapiv1.RelatedResourceMeta, error) {
 	errs := []error{}
+	var relatedResources []operatorapiv1.RelatedResourceMeta
+
 	resourceResults := resourceapply.ApplyDirectly(
 		resourceapply.NewKubeClientHolder(destKubeclient).WithAPIExtensionsClient(destApiExtensionClient),
 		recorder,
@@ -443,7 +426,7 @@ func (n *klusterletController) applyStaticFiles(ctx context.Context, klusterletN
 				return nil, err
 			}
 			objData := assets.MustCreateAssetFromTemplate(name, template, config).Data
-			helpers.SetRelatedResourcesStatusesWithObj(relatedResourcesStatuses, objData)
+			helpers.SetRelatedResourcesStatusesWithObj(&relatedResources, objData)
 			return objData, nil
 		},
 		staticFiles...,
@@ -461,10 +444,10 @@ func (n *klusterletController) applyStaticFiles(ctx context.Context, klusterletN
 			Type: klusterletApplied, Status: metav1.ConditionFalse, Reason: "KlusterletApplyFailed",
 			Message: applyErrors.Error(),
 		}))
-		return applyErrors
+		return relatedResources, applyErrors
 	}
 
-	return nil
+	return relatedResources, nil
 }
 
 // registrationServiceAccountName splices the name of registration service account
@@ -512,7 +495,7 @@ func (n *klusterletController) syncPullSecret(ctx context.Context, sourceClient,
 	}
 
 	// Sync pull secret
-	_, _, err = syncSecret(
+	_, _, err = helpers.SyncSecret(
 		sourceClient.CoreV1(),
 		targetClient.CoreV1(),
 		recorder,
@@ -531,53 +514,6 @@ func (n *klusterletController) syncPullSecret(ctx context.Context, sourceClient,
 		return err
 	}
 	return nil
-}
-
-// syncSecret forked from resourceapply.SyncSecret, add an addition snippet to support sync secret to another cluster.
-func syncSecret(client, targetClient coreclientv1.SecretsGetter, recorder events.Recorder,
-	sourceNamespace, sourceName, targetNamespace, targetName string, ownerRefs []metav1.OwnerReference) (*corev1.Secret, bool, error) {
-	source, err := client.Secrets(sourceNamespace).Get(context.TODO(), sourceName, metav1.GetOptions{})
-	switch {
-	case errors.IsNotFound(err):
-		if _, getErr := targetClient.Secrets(targetNamespace).Get(context.TODO(), targetName, metav1.GetOptions{}); getErr != nil && errors.IsNotFound(getErr) {
-			return nil, true, nil
-		}
-		deleteErr := targetClient.Secrets(targetNamespace).Delete(context.TODO(), targetName, metav1.DeleteOptions{})
-		if errors.IsNotFound(deleteErr) {
-			return nil, false, nil
-		}
-		if deleteErr == nil {
-			recorder.Eventf("TargetSecretDeleted", "Deleted target secret %s/%s because source config does not exist", targetNamespace, targetName)
-			return nil, true, nil
-		}
-		return nil, false, deleteErr
-	case err != nil:
-		return nil, false, err
-	default:
-		if source.Type == corev1.SecretTypeServiceAccountToken {
-
-			// Make sure the token is already present, otherwise we have to wait before creating the target
-			if len(source.Data[corev1.ServiceAccountTokenKey]) == 0 {
-				return nil, false, fmt.Errorf("secret %s/%s doesn't have a token yet", source.Namespace, source.Name)
-			}
-
-			if source.Annotations != nil {
-				// When syncing a service account token we have to remove the SA annotation to disable injection into copies
-				delete(source.Annotations, corev1.ServiceAccountNameKey)
-				// To make it clean, remove the dormant annotations as well
-				delete(source.Annotations, corev1.ServiceAccountUIDKey)
-			}
-
-			// SecretTypeServiceAccountToken implies required fields and injection which we do not want in copies
-			source.Type = corev1.SecretTypeOpaque
-		}
-
-		source.Namespace = targetNamespace
-		source.Name = targetName
-		source.ResourceVersion = ""
-		source.OwnerReferences = ownerRefs
-		return resourceapply.ApplySecret(targetClient, recorder, source)
-	}
 }
 
 func (n *klusterletController) ensureNamespace(ctx context.Context, kubeClient kubernetes.Interface, klusterletName, namespace string) error {
@@ -616,16 +552,16 @@ func (n *klusterletController) cleanUp(
 	managedClients *managedClusterClients,
 	config klusterletConfig) error {
 	// Remove deployment
-	registrationDeployment := fmt.Sprintf("%s-registration-agent", config.KlusterletName)
-	err := managedClients.kubeClient.AppsV1().Deployments(config.KlusterletNamespace).Delete(ctx, registrationDeployment, metav1.DeleteOptions{})
-	if err != nil && !errors.IsNotFound(err) {
-		return err
+	deployments := []string{
+		fmt.Sprintf("%s-registration-agent", config.KlusterletName),
+		fmt.Sprintf("%s-work-agent", config.KlusterletName),
 	}
-	controllerContext.Recorder().Eventf("DeploymentDeleted", "deployment %s is deleted", registrationDeployment)
-	workDeployment := fmt.Sprintf("%s-work-agent", config.KlusterletName)
-	err = managedClients.kubeClient.AppsV1().Deployments(config.KlusterletNamespace).Delete(ctx, workDeployment, metav1.DeleteOptions{})
-	if err != nil && !errors.IsNotFound(err) {
-		return err
+	for _, deployment := range deployments {
+		err := managedClients.kubeClient.AppsV1().Deployments(config.KlusterletNamespace).Delete(ctx, deployment, metav1.DeleteOptions{})
+		if err != nil && !errors.IsNotFound(err) {
+			return err
+		}
+		controllerContext.Recorder().Eventf("DeploymentDeleted", "deployment %s is deleted", deployment)
 	}
 
 	// get hub host from bootstrap kubeconfig
@@ -658,16 +594,15 @@ func (n *klusterletController) cleanUp(
 
 	// remove static file on the managed cluster
 	err = n.removeStaticResources(ctx, managedClients.kubeClient, managedClients.apiExtensionClient,
-		staticResourceFiles, config)
+		managedStaticResourceFiles, config)
 	if err != nil {
 		return err
 	}
-	if config.DetachedMode {
-		// remove static file on the management cluster
-		err = n.removeStaticResources(ctx, n.kubeClient, n.apiExtensionClient, detachedStaticResourceFiles, config)
-		if err != nil {
-			return err
-		}
+
+	// remove static file on the management cluster
+	err = n.removeStaticResources(ctx, n.kubeClient, n.apiExtensionClient, managementStaticResourceFiles, config)
+	if err != nil {
+		return err
 	}
 
 	// TODO remove this when we do not support kube 1.11 any longer
