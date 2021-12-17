@@ -19,6 +19,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	coreclientv1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/util/retry"
 	"k8s.io/klog/v2"
 
 	"github.com/openshift/library-go/pkg/assets"
@@ -94,6 +95,9 @@ type klusterletController struct {
 	appliedManifestWorkClient workv1client.AppliedManifestWorkInterface
 	kubeVersion               *version.Version
 	operatorNamespace         string
+
+	// buildManagedClusterClientsDetachedMode build clients for manged cluster in detached mode, this can be override for testing
+	buildManagedClusterClientsDetachedMode func(kubeClient kubernetes.Interface, namespace, secret string) (*managedClusterClients, error)
 }
 
 // NewKlusterletController construct klusterlet controller
@@ -109,13 +113,14 @@ func NewKlusterletController(
 	operatorNamespace string,
 	recorder events.Recorder) factory.Controller {
 	controller := &klusterletController{
-		kubeClient:                kubeClient,
-		apiExtensionClient:        apiExtensionClient,
-		klusterletClient:          klusterletClient,
-		klusterletLister:          klusterletInformer.Lister(),
-		appliedManifestWorkClient: appliedManifestWorkClient,
-		kubeVersion:               kubeVersion,
-		operatorNamespace:         operatorNamespace,
+		kubeClient:                             kubeClient,
+		apiExtensionClient:                     apiExtensionClient,
+		klusterletClient:                       klusterletClient,
+		klusterletLister:                       klusterletInformer.Lister(),
+		appliedManifestWorkClient:              appliedManifestWorkClient,
+		kubeVersion:                            kubeVersion,
+		operatorNamespace:                      operatorNamespace,
+		buildManagedClusterClientsDetachedMode: buildManagedClusterClientsFromSecret,
 	}
 
 	return factory.New().WithSync(controller.sync).
@@ -189,9 +194,17 @@ func (n *klusterletController) sync(ctx context.Context, controllerContext facto
 		DetachedMode:                                detachedMode,
 	}
 
-	managedClusterClients, err := n.buildManagedClusterClients(detachedMode, config.KlusterletNamespace, config.ExternalManagedKubeConfigSecret)
-	if err != nil {
-		return err
+	managedClusterClients := &managedClusterClients{
+		kubeClient:                n.kubeClient,
+		apiExtensionClient:        n.apiExtensionClient,
+		appliedManifestWorkClient: n.appliedManifestWorkClient,
+	}
+
+	if detachedMode {
+		managedClusterClients, err = n.buildManagedClusterClientsDetachedMode(n.kubeClient, config.KlusterletNamespace, config.ExternalManagedKubeConfigSecret)
+		if err != nil {
+			return err
+		}
 	}
 
 	// Update finalizer at first
@@ -329,11 +342,13 @@ func (n *klusterletController) sync(ctx context.Context, controllerContext facto
 		}
 
 		// create managed config secret for registration and work.
-		if err := n.createManagedClusterKubeconfig(ctx, klusterletName, config.KlusterletNamespace, n.registrationServiceAccountName(klusterletName), config.ExternalManagedKubeConfigRegistrationSecret,
-			managedClusterClients.kubeconfig, managedClusterClients.kubeClient, n.kubeClient.CoreV1(), controllerContext.Recorder()); err != nil {
+		err = n.createManagedClusterKubeconfig(ctx, klusterletName, config.KlusterletNamespace, registrationServiceAccountName(klusterletName), config.ExternalManagedKubeConfigRegistrationSecret,
+			managedClusterClients.kubeconfig, managedClusterClients.kubeClient, n.kubeClient.CoreV1(), controllerContext.Recorder())
+		if err != nil {
 			return err
 		}
-		if err := n.createManagedClusterKubeconfig(ctx, klusterletName, config.KlusterletNamespace, n.workServiceAccountName(klusterletName), config.ExternalManagedKubeConfigWorkSecret,
+
+		if err := n.createManagedClusterKubeconfig(ctx, klusterletName, config.KlusterletNamespace, workServiceAccountName(klusterletName), config.ExternalManagedKubeConfigWorkSecret,
 			managedClusterClients.kubeconfig, managedClusterClients.kubeClient, n.kubeClient.CoreV1(), controllerContext.Recorder()); err != nil {
 			return err
 		}
@@ -453,12 +468,12 @@ func (n *klusterletController) applyStaticFiles(ctx context.Context, klusterletN
 }
 
 // registrationServiceAccountName splices the name of registration service account
-func (n *klusterletController) registrationServiceAccountName(klusterletName string) string {
+func registrationServiceAccountName(klusterletName string) string {
 	return fmt.Sprintf("%s-registration-sa", klusterletName)
 }
 
 // workServiceAccountName splices the name of work service account
-func (n *klusterletController) workServiceAccountName(klusterletName string) string {
+func workServiceAccountName(klusterletName string) string {
 	return fmt.Sprintf("%s-work-sa", klusterletName)
 }
 
@@ -471,8 +486,14 @@ func (n *klusterletController) createManagedClusterKubeconfig(
 	kubeconfigTemplate *rest.Config,
 	saClient kubernetes.Interface, secretClient coreclientv1.SecretsGetter,
 	recorder events.Recorder) error {
-	err := helpers.EnsureSAToken(ctx, saName, klusterletNamespace, saClient,
-		helpers.RenderToKubeconfigSecret(secretName, klusterletNamespace, kubeconfigTemplate, n.kubeClient.CoreV1(), recorder))
+	err := retry.OnError(retry.DefaultBackoff,
+		func(e error) bool {
+			return true
+		},
+		func() error {
+			return helpers.EnsureSAToken(ctx, saName, klusterletNamespace, saClient,
+				helpers.RenderToKubeconfigSecret(secretName, klusterletNamespace, kubeconfigTemplate, n.kubeClient.CoreV1(), recorder))
+		})
 	if err != nil {
 		_, _, _ = helpers.UpdateKlusterletStatus(ctx, n.klusterletClient, klusterletName, helpers.UpdateKlusterletConditionFn(metav1.Condition{
 			Type: klusterletApplied, Status: metav1.ConditionFalse, Reason: "KlusterletApplyFailed",
@@ -835,8 +856,8 @@ func getServersFromKlusterlet(klusterlet *operatorapiv1.Klusterlet) string {
 
 // getManagedKubeConfig is a helper func for Detached mode, it will retrive managed cluster
 // kubeconfig from "external-managed-kubeconfig" secret.
-func (n *klusterletController) getManagedKubeConfig(namespace, secretName string) (*rest.Config, error) {
-	managedKubeconfigSecret, err := n.kubeClient.CoreV1().Secrets(namespace).Get(context.TODO(), secretName, metav1.GetOptions{})
+func getManagedKubeConfig(kubeClient kubernetes.Interface, namespace, secretName string) (*rest.Config, error) {
+	managedKubeconfigSecret, err := kubeClient.CoreV1().Secrets(namespace).Get(context.TODO(), secretName, metav1.GetOptions{})
 	if err != nil {
 		return nil, err
 	}
@@ -844,20 +865,14 @@ func (n *klusterletController) getManagedKubeConfig(namespace, secretName string
 	return helpers.LoadClientConfigFromSecret(managedKubeconfigSecret)
 }
 
-// buildManagedClusterClients builds variety of clients for managed cluster
-func (n *klusterletController) buildManagedClusterClients(detachedMode bool, klusterletNamespace, secretName string) (
+// buildManagedClusterClientsFromSecret builds variety of clients for managed cluster from managed cluster kubeconfig secret.
+func buildManagedClusterClientsFromSecret(client kubernetes.Interface, klusterletNamespace, secretName string) (
 	*managedClusterClients, error) {
-	if !detachedMode {
-		return &managedClusterClients{
-			kubeClient:                n.kubeClient,
-			apiExtensionClient:        n.apiExtensionClient,
-			appliedManifestWorkClient: n.appliedManifestWorkClient}, nil
-	}
-
-	managedKubeConfig, err := n.getManagedKubeConfig(klusterletNamespace, secretName)
+	managedKubeConfig, err := getManagedKubeConfig(client, klusterletNamespace, secretName)
 	if err != nil {
 		return nil, err
 	}
+
 	kubeClient, err := kubernetes.NewForConfig(managedKubeConfig)
 	if err != nil {
 		return nil, err

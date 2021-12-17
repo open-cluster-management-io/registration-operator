@@ -1,6 +1,7 @@
 package klusterletcontroller
 
 import (
+	"context"
 	"crypto/sha256"
 	"fmt"
 	"strings"
@@ -16,14 +17,19 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/apimachinery/pkg/util/version"
+	"k8s.io/client-go/kubernetes"
 	fakekube "k8s.io/client-go/kubernetes/fake"
+	"k8s.io/client-go/rest"
 	clienttesting "k8s.io/client-go/testing"
 	"k8s.io/client-go/tools/cache"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	clientcmdlatest "k8s.io/client-go/tools/clientcmd/api/latest"
+	"k8s.io/klog/v2"
+
 	fakeoperatorclient "open-cluster-management.io/api/client/operator/clientset/versioned/fake"
 	operatorinformers "open-cluster-management.io/api/client/operator/informers/externalversions"
 	fakeworkclient "open-cluster-management.io/api/client/work/clientset/versioned/fake"
+	fakeworkclientset "open-cluster-management.io/api/client/work/clientset/versioned/fake"
 	opratorapiv1 "open-cluster-management.io/api/operator/v1"
 	workapiv1 "open-cluster-management.io/api/work/v1"
 	"open-cluster-management.io/registration-operator/pkg/helpers"
@@ -37,6 +43,10 @@ type testController struct {
 	operatorClient     *fakeoperatorclient.Clientset
 	workClient         *fakeworkclient.Clientset
 	operatorStore      cache.Store
+
+	managedKubeClient         *fakekube.Clientset
+	managedApiExtensionClient *fakeapiextensions.Clientset
+	managedWorkClient         *fakeworkclient.Clientset
 }
 
 func newSecret(name, namespace string) *corev1.Secret {
@@ -47,6 +57,13 @@ func newSecret(name, namespace string) *corev1.Secret {
 		},
 		Data: map[string][]byte{},
 	}
+}
+
+func newServiceAccountSecret(name, namespace string) *corev1.Secret {
+	secret := newSecret(name, namespace)
+	secret.Data["token"] = []byte("test-token")
+	secret.Type = corev1.SecretTypeServiceAccountToken
+	return secret
 }
 
 func newWorkAgentDeployment(klusterletName, clusterName string) *appsv1.Deployment {
@@ -85,6 +102,12 @@ func newKlusterlet(name, namespace, clustername string) *opratorapiv1.Klusterlet
 	}
 }
 
+func newKlusterletDetached(name, namespace, clustername string) *opratorapiv1.Klusterlet {
+	klusterlet := newKlusterlet(name, namespace, clustername)
+	klusterlet.Spec.DeployOption.Mode = opratorapiv1.InstallModeDetached
+	return klusterlet
+}
+
 func newNamespace(name string) *corev1.Namespace {
 	return &corev1.Namespace{
 		ObjectMeta: metav1.ObjectMeta{
@@ -99,6 +122,21 @@ func newNode(name string) *corev1.Node {
 			Name: name,
 			Labels: map[string]string{
 				"node-role.kubernetes.io/master": "",
+			},
+		},
+	}
+}
+
+func newServiceAccount(name, namespace string, referenceSecret string) *corev1.ServiceAccount {
+	return &corev1.ServiceAccount{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+		},
+		Secrets: []corev1.ObjectReference{
+			{
+				Name:      referenceSecret,
+				Namespace: namespace,
 			},
 		},
 	}
@@ -132,6 +170,100 @@ func newTestController(klusterlet *opratorapiv1.Klusterlet, appliedManifestWorks
 		operatorClient:     fakeOperatorClient,
 		workClient:         fakeWorkClient,
 		operatorStore:      store,
+	}
+}
+
+func newTestControllerDetached(klusterlet *opratorapiv1.Klusterlet, appliedManifestWorks []runtime.Object, objects ...runtime.Object) *testController {
+	fakeKubeClient := fakekube.NewSimpleClientset(objects...)
+	fakeAPIExtensionClient := fakeapiextensions.NewSimpleClientset()
+	fakeOperatorClient := fakeoperatorclient.NewSimpleClientset(klusterlet)
+	fakeWorkClient := fakeworkclient.NewSimpleClientset(appliedManifestWorks...)
+	operatorInformers := operatorinformers.NewSharedInformerFactory(fakeOperatorClient, 5*time.Minute)
+	kubeVersion, _ := version.ParseGeneric("v1.18.0")
+
+	installedNamespace := helpers.KlusterletNamespace(klusterlet.Spec.DeployOption.Mode, klusterlet.Name, klusterlet.Spec.Namespace)
+	saRegistrationSecret := newServiceAccountSecret(fmt.Sprintf("%s-token", registrationServiceAccountName(klusterlet.Name)), klusterlet.Name)
+	saWorkSecret := newServiceAccountSecret(fmt.Sprintf("%s-token", workServiceAccountName(klusterlet.Name)), klusterlet.Name)
+	fakeManagedKubeClient := fakekube.NewSimpleClientset()
+	getRegistrationServiceAccountCount := 0
+	getWorkServiceAccountCount := 0
+	// fake the get serviceaccount, since there is no kubernetes controller to create service account related secret.
+	// count the number of getting serviceaccount:
+	// - the first call will return empty(Apply service account will invoke GetServiceAccount firstly),return empty will let the Apply service account to creation.
+	// - After the first one, we will return a service account with secrets.
+	fakeManagedKubeClient.PrependReactor("get", "serviceaccounts", func(action clienttesting.Action) (handled bool, ret runtime.Object, err error) {
+		name := action.(clienttesting.GetAction).GetName()
+		namespace := action.(clienttesting.GetAction).GetNamespace()
+		if namespace == installedNamespace && name == registrationServiceAccountName(klusterlet.Name) {
+			getRegistrationServiceAccountCount++
+			if getRegistrationServiceAccountCount > 1 {
+				sa := newServiceAccount(name, installedNamespace, saRegistrationSecret.Name)
+				klog.Infof("return service account %s/%s, secret: %v", installedNamespace, name, sa.Secrets)
+				return true, sa, nil
+			}
+		}
+
+		if namespace == installedNamespace && name == workServiceAccountName(klusterlet.Name) {
+			getWorkServiceAccountCount++
+			if getWorkServiceAccountCount > 1 {
+				sa := newServiceAccount(name, installedNamespace, saWorkSecret.Name)
+				klog.Infof("return service account %s/%s, secret: %v", installedNamespace, name, sa.Secrets)
+				return true, sa, nil
+			}
+		}
+		return false, nil, nil
+	})
+	fakeManagedKubeClient.PrependReactor("get", "secrets", func(action clienttesting.Action) (handled bool, ret runtime.Object, err error) {
+		name := action.(clienttesting.GetAction).GetName()
+		namespace := action.(clienttesting.GetAction).GetNamespace()
+		if namespace == installedNamespace && name == saRegistrationSecret.Name {
+			return true, saRegistrationSecret, nil
+		}
+		if namespace == installedNamespace && name == saWorkSecret.Name {
+			return true, saWorkSecret, nil
+		}
+		return false, nil, nil
+	})
+
+	fakeManagedAPIExtensionClient := fakeapiextensions.NewSimpleClientset()
+	fakeManagedWorkClient := fakeworkclientset.NewSimpleClientset()
+	hubController := &klusterletController{
+		klusterletClient:          fakeOperatorClient.OperatorV1().Klusterlets(),
+		kubeClient:                fakeKubeClient,
+		apiExtensionClient:        fakeAPIExtensionClient,
+		appliedManifestWorkClient: fakeWorkClient.WorkV1().AppliedManifestWorks(),
+		klusterletLister:          operatorInformers.Operator().V1().Klusterlets().Lister(),
+		kubeVersion:               kubeVersion,
+		operatorNamespace:         "open-cluster-management",
+		buildManagedClusterClientsDetachedMode: func(kubeClient kubernetes.Interface, namespace, secret string) (*managedClusterClients, error) {
+			return &managedClusterClients{
+				kubeClient:                fakeManagedKubeClient,
+				apiExtensionClient:        fakeManagedAPIExtensionClient,
+				appliedManifestWorkClient: fakeManagedWorkClient.WorkV1().AppliedManifestWorks(),
+				kubeconfig: &rest.Config{
+					Host: "testhost",
+					TLSClientConfig: rest.TLSClientConfig{
+						CAData: []byte("test"),
+					},
+				},
+			}, nil
+		},
+	}
+
+	store := operatorInformers.Operator().V1().Klusterlets().Informer().GetStore()
+	store.Add(klusterlet)
+
+	return &testController{
+		controller:         hubController,
+		kubeClient:         fakeKubeClient,
+		apiExtensionClient: fakeAPIExtensionClient,
+		operatorClient:     fakeOperatorClient,
+		workClient:         fakeWorkClient,
+		operatorStore:      store,
+
+		managedKubeClient:         fakeManagedKubeClient,
+		managedApiExtensionClient: fakeManagedAPIExtensionClient,
+		managedWorkClient:         fakeManagedWorkClient,
 	}
 }
 
@@ -230,19 +362,20 @@ func ensureObject(t *testing.T, object runtime.Object, klusterlet *opratorapiv1.
 		t.Errorf("Unable to access objectmeta: %v", err)
 	}
 
+	namespace := helpers.KlusterletNamespace(klusterlet.Spec.DeployOption.Mode, klusterlet.Name, klusterlet.Spec.Namespace)
 	switch o := object.(type) {
 	case *appsv1.Deployment:
 		if strings.Contains(access.GetName(), "registration") {
 			testinghelper.AssertEqualNameNamespace(
 				t, access.GetName(), access.GetNamespace(),
-				fmt.Sprintf("%s-registration-agent", klusterlet.Name), klusterlet.Spec.Namespace)
+				fmt.Sprintf("%s-registration-agent", klusterlet.Name), namespace)
 			if klusterlet.Spec.RegistrationImagePullSpec != o.Spec.Template.Spec.Containers[0].Image {
 				t.Errorf("Image does not match to the expected.")
 			}
 		} else if strings.Contains(access.GetName(), "work") {
 			testinghelper.AssertEqualNameNamespace(
 				t, access.GetName(), access.GetNamespace(),
-				fmt.Sprintf("%s-work-agent", klusterlet.Name), klusterlet.Spec.Namespace)
+				fmt.Sprintf("%s-work-agent", klusterlet.Name), namespace)
 			if klusterlet.Spec.WorkImagePullSpec != o.Spec.Template.Spec.Containers[0].Image {
 				t.Errorf("Image does not match to the expected.")
 			}
@@ -262,7 +395,7 @@ func TestSyncDeploy(t *testing.T) {
 	controller := newTestController(klusterlet, nil, bootStrapSecret, hubKubeConfigSecret, namespace)
 	syncContext := testinghelper.NewFakeSyncContext(t, "klusterlet")
 
-	err := controller.controller.sync(nil, syncContext)
+	err := controller.controller.sync(context.TODO(), syncContext)
 	if err != nil {
 		t.Errorf("Expected non error when sync, %v", err)
 	}
@@ -273,6 +406,7 @@ func TestSyncDeploy(t *testing.T) {
 		if action.GetVerb() == "create" {
 			object := action.(clienttesting.CreateActionImpl).Object
 			createObjects = append(createObjects, object)
+
 		}
 	}
 
@@ -293,6 +427,96 @@ func TestSyncDeploy(t *testing.T) {
 		}
 	}
 	if len(createCRDObjects) != 2 {
+		t.Errorf("Expect 2 objects created in the sync loop, actual %d", len(createCRDObjects))
+	}
+
+	operatorAction := controller.operatorClient.Actions()
+	if len(operatorAction) != 2 {
+		t.Errorf("Expect 2 actions in the sync loop, actual %#v", operatorAction)
+	}
+
+	testinghelper.AssertGet(t, operatorAction[0], "operator.open-cluster-management.io", "v1", "klusterlets")
+	testinghelper.AssertAction(t, operatorAction[1], "update")
+	testinghelper.AssertOnlyConditions(
+		t, operatorAction[1].(clienttesting.UpdateActionImpl).Object,
+		testinghelper.NamedCondition(klusterletApplied, "KlusterletApplied", metav1.ConditionTrue))
+}
+
+// TestSyncDeployDetached test deployment of klusterlet components in detached mode
+func TestSyncDeployDetached(t *testing.T) {
+	installedNamespace := "klusterlet"
+	klusterlet := newKlusterletDetached("klusterlet", "testns", "cluster1")
+	bootStrapSecret := newSecret(helpers.BootstrapHubKubeConfig, installedNamespace)
+	hubKubeConfigSecret := newSecret(helpers.HubKubeConfig, installedNamespace)
+	hubKubeConfigSecret.Data["kubeconfig"] = []byte("dummuykubeconnfig")
+	// externalManagedSecret := newSecret(helpers.ExternalManagedKubeConfig, installedNamespace)
+	// externalManagedSecret.Data["kubeconfig"] = []byte("dummuykubeconnfig")
+	namespace := newNamespace(installedNamespace)
+	controller := newTestControllerDetached(klusterlet, nil, bootStrapSecret, hubKubeConfigSecret, namespace /*externalManagedSecret*/)
+	syncContext := testinghelper.NewFakeSyncContext(t, "klusterlet")
+
+	err := controller.controller.sync(context.TODO(), syncContext)
+	if err != nil {
+		t.Errorf("Expected non error when sync, %v", err)
+	}
+
+	createObjects := []runtime.Object{}
+	kubeActions := controller.kubeClient.Actions()
+	for _, action := range kubeActions {
+		if action.GetVerb() == "create" {
+			object := action.(clienttesting.CreateActionImpl).Object
+			klog.Infof("kube create: %v\t resource:%v \t subresource:%v \t namespace:%v verb:%v ", object.GetObjectKind(), action.GetResource(), action.GetSubresource(), action.GetNamespace(), action.GetVerb())
+			createObjects = append(createObjects, object)
+		}
+	}
+	// Check if resources are created as expected on the management cluster
+	// 8 static manifests + 2 secrets(external-managed-kubeconfig-registration,external-managed-kubeconfig-work) + 2 deployments(registration-agent,work-agent)
+	if len(createObjects) != 12 {
+		t.Errorf("Expect 12 objects created in the sync loop, actual %d", len(createObjects))
+	}
+	for _, object := range createObjects {
+		ensureObject(t, object, klusterlet)
+	}
+
+	createObjectsManaged := []runtime.Object{}
+	for _, action := range controller.managedKubeClient.Actions() {
+		if action.GetVerb() == "create" {
+
+			object := action.(clienttesting.CreateActionImpl).Object
+			klog.Infof("managed kube create: %v\t resource:%v \t subresource:%v \t namespace:%v verb:%v ", object.GetObjectKind().GroupVersionKind(), action.GetResource(), action.GetSubresource(), action.GetNamespace(), action.GetVerb())
+
+			createObjectsManaged = append(createObjectsManaged, object)
+		}
+	}
+	// Check if resources are created as expected on the managed cluster
+	// 11 static manifests
+	if len(createObjectsManaged) != 11 {
+		t.Errorf("Expect 11 objects created in the sync loop, actual %d", len(createObjectsManaged))
+	}
+	for _, object := range createObjectsManaged {
+		ensureObject(t, object, klusterlet)
+	}
+
+	apiExtenstionAction := controller.apiExtensionClient.Actions()
+	createCRDObjects := []runtime.Object{}
+	for _, action := range apiExtenstionAction {
+		if action.GetVerb() == "create" && action.GetResource().Resource == "customresourcedefinitions" {
+			object := action.(clienttesting.CreateActionImpl).Object
+			createCRDObjects = append(createCRDObjects, object)
+		}
+	}
+	if len(createCRDObjects) != 0 {
+		t.Errorf("Expect 0 objects created in the sync loop, actual %d", len(createCRDObjects))
+	}
+
+	createCRDObjectsManaged := []runtime.Object{}
+	for _, action := range controller.managedApiExtensionClient.Actions() {
+		if action.GetVerb() == "create" && action.GetResource().Resource == "customresourcedefinitions" {
+			object := action.(clienttesting.CreateActionImpl).Object
+			createCRDObjectsManaged = append(createCRDObjectsManaged, object)
+		}
+	}
+	if len(createCRDObjectsManaged) != 2 {
 		t.Errorf("Expect 2 objects created in the sync loop, actual %d", len(createCRDObjects))
 	}
 
