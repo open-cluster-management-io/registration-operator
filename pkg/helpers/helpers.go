@@ -599,7 +599,6 @@ func UpdateKlusterletRelatedResourcesFn(relatedResources ...operatorapiv1.Relate
 // Note in Detached mode, the specNamespace will be ignored.
 func KlusterletNamespace(mode operatorapiv1.InstallMode, klusterletName, specNamespace string) string {
 	if mode == operatorapiv1.InstallModeDetached {
-		// return fmt.Sprintf("%s-%s", klusterletName, KlusterletDefaultNamespace)
 		return klusterletName
 	}
 

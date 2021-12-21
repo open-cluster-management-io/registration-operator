@@ -40,7 +40,6 @@ OLM_VERSION?=0.16.1
 
 PWD=$(shell pwd)
 KUSTOMIZE?=$(PWD)/$(PERMANENT_TMP_GOPATH)/bin/kustomize
-# KUSTOMIZE?=$(PERMANENT_TMP_GOPATH)/bin/kustomize
 KUSTOMIZE_VERSION?=v3.5.4
 KUSTOMIZE_ARCHIVE_NAME?=kustomize_$(KUSTOMIZE_VERSION)_$(GOHOSTOS)_$(GOHOSTARCH).tar.gz
 kustomize_dir:=$(dir $(KUSTOMIZE))
@@ -157,12 +156,6 @@ clean-spoke-operator:
 	$(KUSTOMIZE) build deploy/klusterlet/config | $(KUBECTL) delete --ignore-not-found -f -
 	$(KUBECTL) delete ns open-cluster-management-agent --ignore-not-found
 	$(KUBECTL) delete ns klusterlet --ignore-not-found
-
-# Registration e2e expects to read bootstrap secret from open-cluster-management/e2e-bootstrap-secret
-# TODO: think about how to factor this
-e2e-bootstrap-secret: cluster-ip
-	$(KUBECTL) delete secret e2e-bootstrap-secret -n open-cluster-management --ignore-not-found
-	$(KUBECTL) create secret generic e2e-bootstrap-secret --from-file=kubeconfig=$(HUB_KUBECONFIG) -n open-cluster-management
 
 install-olm: ensure-operator-sdk
 	$(KUBECTL) get crds | grep clusterserviceversion ; if [ $$? -ne 0 ] ; then $(OPERATOR_SDK) olm install --version $(OLM_VERSION); fi
