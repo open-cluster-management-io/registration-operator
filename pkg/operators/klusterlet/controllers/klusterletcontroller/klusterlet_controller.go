@@ -557,7 +557,7 @@ func (n *klusterletController) cleanUp(
 		fmt.Sprintf("%s-work-agent", config.KlusterletName),
 	}
 	for _, deployment := range deployments {
-		err := managedClients.kubeClient.AppsV1().Deployments(config.KlusterletNamespace).Delete(ctx, deployment, metav1.DeleteOptions{})
+		err := n.kubeClient.AppsV1().Deployments(config.KlusterletNamespace).Delete(ctx, deployment, metav1.DeleteOptions{})
 		if err != nil && !errors.IsNotFound(err) {
 			return err
 		}
@@ -607,7 +607,7 @@ func (n *klusterletController) cleanUp(
 
 	// TODO remove this when we do not support kube 1.11 any longer
 	cnt, err := n.kubeVersion.Compare("v1.12.0")
-	klog.Info("comapare version %d, %v", cnt, err)
+	klog.Infof("comapare version %d, %v", cnt, err)
 	if cnt, err := n.kubeVersion.Compare("v1.12.0"); err == nil && cnt < 0 {
 		err = n.removeStaticResources(ctx, managedClients.kubeClient, managedClients.apiExtensionClient,
 			kube111StaticResourceFiles, config)

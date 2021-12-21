@@ -177,7 +177,7 @@ func newTestControllerDetached(klusterlet *opratorapiv1.Klusterlet, appliedManif
 	fakeKubeClient := fakekube.NewSimpleClientset(objects...)
 	fakeAPIExtensionClient := fakeapiextensions.NewSimpleClientset()
 	fakeOperatorClient := fakeoperatorclient.NewSimpleClientset(klusterlet)
-	fakeWorkClient := fakeworkclient.NewSimpleClientset(appliedManifestWorks...)
+	fakeWorkClient := fakeworkclient.NewSimpleClientset()
 	operatorInformers := operatorinformers.NewSharedInformerFactory(fakeOperatorClient, 5*time.Minute)
 	kubeVersion, _ := version.ParseGeneric("v1.18.0")
 
@@ -226,7 +226,7 @@ func newTestControllerDetached(klusterlet *opratorapiv1.Klusterlet, appliedManif
 	})
 
 	fakeManagedAPIExtensionClient := fakeapiextensions.NewSimpleClientset()
-	fakeManagedWorkClient := fakeworkclientset.NewSimpleClientset()
+	fakeManagedWorkClient := fakeworkclientset.NewSimpleClientset(appliedManifestWorks...)
 	hubController := &klusterletController{
 		klusterletClient:          fakeOperatorClient.OperatorV1().Klusterlets(),
 		kubeClient:                fakeKubeClient,
@@ -453,7 +453,8 @@ func TestSyncDeployDetached(t *testing.T) {
 	// externalManagedSecret := newSecret(helpers.ExternalManagedKubeConfig, installedNamespace)
 	// externalManagedSecret.Data["kubeconfig"] = []byte("dummuykubeconnfig")
 	namespace := newNamespace(installedNamespace)
-	controller := newTestControllerDetached(klusterlet, nil, bootStrapSecret, hubKubeConfigSecret, namespace /*externalManagedSecret*/)
+	pullSecret := newSecret(imagePullSecret, "open-cluster-management")
+	controller := newTestControllerDetached(klusterlet, nil, bootStrapSecret, hubKubeConfigSecret, namespace, pullSecret /*externalManagedSecret*/)
 	syncContext := testinghelper.NewFakeSyncContext(t, "klusterlet")
 
 	err := controller.controller.sync(context.TODO(), syncContext)
@@ -466,14 +467,14 @@ func TestSyncDeployDetached(t *testing.T) {
 	for _, action := range kubeActions {
 		if action.GetVerb() == "create" {
 			object := action.(clienttesting.CreateActionImpl).Object
-			klog.Infof("kube create: %v\t resource:%v \t namespace:%v", object.GetObjectKind(), action.GetResource(), action.GetNamespace())
+			klog.Infof("management kube create: %v\t resource:%v \t namespace:%v", object.GetObjectKind(), action.GetResource(), action.GetNamespace())
 			createObjectsManagement = append(createObjectsManagement, object)
 		}
 	}
 	// Check if resources are created as expected on the management cluster
-	// 8 static manifests + 2 secrets(external-managed-kubeconfig-registration,external-managed-kubeconfig-work) + 2 deployments(registration-agent,work-agent)
-	if len(createObjectsManagement) != 12 {
-		t.Errorf("Expect 12 objects created in the sync loop, actual %d", len(createObjectsManagement))
+	// 8 static manifests + 2 secrets(external-managed-kubeconfig-registration,external-managed-kubeconfig-work) + 2 deployments(registration-agent,work-agent) + 1 pull secret
+	if len(createObjectsManagement) != 13 {
+		t.Errorf("Expect 13 objects created in the sync loop, actual %d", len(createObjectsManagement))
 	}
 	for _, object := range createObjectsManagement {
 		ensureObject(t, object, klusterlet)
@@ -489,8 +490,8 @@ func TestSyncDeployDetached(t *testing.T) {
 		}
 	}
 	// Check if resources are created as expected on the managed cluster
-	// 7 static manifests + 2 namespaces
-	if len(createObjectsManaged) != 9 {
+	// 7 static manifests + 2 namespaces + 1 pull secret in the addon namespace
+	if len(createObjectsManaged) != 10 {
 		t.Errorf("Expect 9 objects created in the sync loop, actual %d", len(createObjectsManaged))
 	}
 	for _, object := range createObjectsManaged {
@@ -583,6 +584,88 @@ func TestSyncDelete(t *testing.T) {
 
 	updateWorkActions := []clienttesting.UpdateActionImpl{}
 	workActions := controller.workClient.Actions()
+	for _, action := range workActions {
+		if action.GetVerb() == "update" {
+			updateAction := action.(clienttesting.UpdateActionImpl)
+			updateWorkActions = append(updateWorkActions, updateAction)
+			continue
+		}
+	}
+
+	// update 1 appliedminifestwork to remove appliedManifestWorkFinalizer
+	if len(updateWorkActions) != 1 {
+		t.Errorf("Expected 1 update action, but got %d", len(updateWorkActions))
+	}
+}
+
+func TestSyncDeleteDetached(t *testing.T) {
+	klusterlet := newKlusterletDetached("klusterlet", "testns", "cluster1")
+	now := metav1.Now()
+	klusterlet.ObjectMeta.SetDeletionTimestamp(&now)
+	installedNamespace := helpers.KlusterletNamespace(klusterlet.Spec.DeployOption.Mode, klusterlet.Name, klusterlet.Spec.Namespace)
+	bootstrapKubeConfigSecret := newSecret(helpers.BootstrapHubKubeConfig, installedNamespace)
+	bootstrapKubeConfigSecret.Data["kubeconfig"] = newKubeConfig("testhost")
+	// externalManagedSecret := newSecret(helpers.ExternalManagedKubeConfig, installedNamespace)
+	// externalManagedSecret.Data["kubeconfig"] = []byte("dummuykubeconnfig")
+	namespace := newNamespace(installedNamespace)
+	appliedManifestWorks := []runtime.Object{
+		newAppliedManifestWorks("testhost", nil, false),
+		newAppliedManifestWorks("testhost", []string{appliedManifestWorkFinalizer}, true),
+		newAppliedManifestWorks("testhost-2", []string{appliedManifestWorkFinalizer}, false),
+	}
+	controller := newTestControllerDetached(klusterlet, appliedManifestWorks, bootstrapKubeConfigSecret, namespace /*externalManagedSecret*/)
+	syncContext := testinghelper.NewFakeSyncContext(t, klusterlet.Name)
+
+	err := controller.controller.sync(context.TODO(), syncContext)
+	if err != nil {
+		t.Errorf("Expected non error when sync, %v", err)
+	}
+
+	deleteActionsManagement := []clienttesting.DeleteActionImpl{}
+	kubeActions := controller.kubeClient.Actions()
+	for _, action := range kubeActions {
+		if action.GetVerb() == "delete" {
+			deleteAction := action.(clienttesting.DeleteActionImpl)
+			klog.Infof("management kube delete name: %v\t resource:%v \t namespace:%v", deleteAction.Name, deleteAction.GetResource(), deleteAction.GetNamespace())
+			deleteActionsManagement = append(deleteActionsManagement, deleteAction)
+		}
+	}
+
+	// 8 static manifests + 3 secrets(hub-kubeconfig-secret, external-managed-kubeconfig-registration,external-managed-kubeconfig-work)
+	// + 2 deployments(registration-agent,work-agent) + 1 namespace
+	if len(deleteActionsManagement) != 14 {
+		t.Errorf("Expected 14 delete actions, but got %d", len(deleteActionsManagement))
+	}
+
+	deleteActionsManaged := []clienttesting.DeleteActionImpl{}
+	for _, action := range controller.managedKubeClient.Actions() {
+		if action.GetVerb() == "delete" {
+			deleteAction := action.(clienttesting.DeleteActionImpl)
+			klog.Infof("managed kube delete name: %v\t resource:%v \t namespace:%v", deleteAction.Name, deleteAction.GetResource(), deleteAction.GetNamespace())
+			deleteActionsManaged = append(deleteActionsManaged, deleteAction)
+		}
+	}
+
+	// 7 static manifests + 2 namespaces
+	if len(deleteActionsManaged) != 9 {
+		t.Errorf("Expected 9 delete actions, but got %d", len(deleteActionsManaged))
+	}
+
+	deleteCRDActions := []clienttesting.DeleteActionImpl{}
+	crdActions := controller.managedApiExtensionClient.Actions()
+	for _, action := range crdActions {
+		if action.GetVerb() == "delete" {
+			deleteAction := action.(clienttesting.DeleteActionImpl)
+			deleteCRDActions = append(deleteCRDActions, deleteAction)
+		}
+	}
+
+	if len(deleteCRDActions) != 2 {
+		t.Errorf("Expected 2 delete actions, but got %d", len(deleteCRDActions))
+	}
+
+	updateWorkActions := []clienttesting.UpdateActionImpl{}
+	workActions := controller.managedWorkClient.Actions()
 	for _, action := range workActions {
 		if action.GetVerb() == "update" {
 			updateAction := action.(clienttesting.UpdateActionImpl)
