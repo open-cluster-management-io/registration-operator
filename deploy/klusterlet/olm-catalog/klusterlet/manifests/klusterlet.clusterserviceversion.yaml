@@ -19,7 +19,10 @@ metadata:
             ],
             "namespace": "open-cluster-management-agent",
             "registrationImagePullSpec": "quay.io/open-cluster-management/registration",
-            "workImagePullSpec": "quay.io/open-cluster-management/work"
+            "workImagePullSpec": "quay.io/open-cluster-management/work",
+            "deployOption": {
+              "mode": "Default"
+            }
           }
         }
       ]
