@@ -42,6 +42,7 @@ const (
 	klusterletFinalizer          = "operator.open-cluster-management.io/klusterlet-cleanup"
 	imagePullSecret              = "open-cluster-management-image-pull-credentials"
 	klusterletApplied            = "Applied"
+	klusterletReadyToApply       = "ReadyToApply"
 	appliedManifestWorkFinalizer = "cluster.open-cluster-management.io/applied-manifest-work-cleanup"
 	defaultReplica               = 3
 	singleReplica                = 1
@@ -147,7 +148,7 @@ type klusterletConfig struct {
 	ExternalManagedKubeConfigSecret             string
 	ExternalManagedKubeConfigRegistrationSecret string
 	ExternalManagedKubeConfigWorkSecret         string
-	DetachedMode                                bool
+	InstallMode                                 operatorapiv1.InstallMode
 }
 
 // managedClusterClients holds variety of kube client for managed cluster
@@ -173,7 +174,6 @@ func (n *klusterletController) sync(ctx context.Context, controllerContext facto
 	}
 	klusterlet = klusterlet.DeepCopy()
 
-	detachedMode := klusterlet.Spec.DeployOption.Mode == operatorapiv1.InstallModeDetached
 	config := klusterletConfig{
 		KlusterletName:            klusterlet.Name,
 		KlusterletNamespace:       helpers.KlusterletNamespace(klusterlet.Spec.DeployOption.Mode, klusterletName, klusterlet.Spec.Namespace),
@@ -189,7 +189,7 @@ func (n *klusterletController) sync(ctx context.Context, controllerContext facto
 		ExternalManagedKubeConfigSecret:             helpers.ExternalManagedKubeConfig,
 		ExternalManagedKubeConfigRegistrationSecret: helpers.ExternalManagedKubeConfigRegistration,
 		ExternalManagedKubeConfigWorkSecret:         helpers.ExternalManagedKubeConfigWork,
-		DetachedMode:                                detachedMode,
+		InstallMode:                                 klusterlet.Spec.DeployOption.Mode,
 	}
 
 	managedClusterClients := &managedClusterClients{
@@ -198,10 +198,19 @@ func (n *klusterletController) sync(ctx context.Context, controllerContext facto
 		appliedManifestWorkClient: n.appliedManifestWorkClient,
 	}
 
-	if detachedMode {
+	if config.InstallMode == operatorapiv1.InstallModeDetached {
 		managedClusterClients, err = n.buildManagedClusterClientsDetachedMode(n.kubeClient, config.KlusterletNamespace, config.ExternalManagedKubeConfigSecret)
 		if err != nil {
+			_, _, _ = helpers.UpdateKlusterletStatus(ctx, n.klusterletClient, klusterletName, helpers.UpdateKlusterletConditionFn(metav1.Condition{
+				Type: klusterletReadyToApply, Status: metav1.ConditionFalse, Reason: "KlusterletPrepareFailed",
+				Message: fmt.Sprintf("Failed to build managed cluster clients: %v", err),
+			}))
 			return err
+		} else {
+			_, _, _ = helpers.UpdateKlusterletStatus(ctx, n.klusterletClient, klusterletName, helpers.UpdateKlusterletConditionFn(metav1.Condition{
+				Type: klusterletReadyToApply, Status: metav1.ConditionTrue, Reason: "KlusterletPrepared",
+				Message: "Klusterlet is ready to apply",
+			}))
 		}
 	}
 
@@ -245,7 +254,7 @@ func (n *klusterletController) sync(ctx context.Context, controllerContext facto
 		return err
 	}
 
-	if detachedMode {
+	if config.InstallMode == operatorapiv1.InstallModeDetached {
 		// In detached mode, we should ensure the namespace on the managed cluster since
 		// some resources(eg:service account) are still deployed on managed cluster.
 		err := n.ensureNamespace(ctx, managedClusterClients.kubeClient, klusterletName, config.KlusterletNamespace)
@@ -296,7 +305,7 @@ func (n *klusterletController) sync(ctx context.Context, controllerContext facto
 	}
 	relatedResources = append(relatedResources, statuses...)
 
-	if detachedMode {
+	if config.InstallMode == operatorapiv1.InstallModeDetached {
 		// create managed config secret for registration and work.
 		err = n.createManagedClusterKubeconfig(ctx, klusterletName, config.KlusterletNamespace, registrationServiceAccountName(klusterletName), config.ExternalManagedKubeConfigRegistrationSecret,
 			managedClusterClients.kubeconfig, managedClusterClients.kubeClient, n.kubeClient.CoreV1(), controllerContext.Recorder())
@@ -580,7 +589,7 @@ func (n *klusterletController) cleanUp(
 
 	// Remove secrets
 	secrets := []string{config.HubKubeConfigSecret}
-	if config.DetachedMode {
+	if config.InstallMode == operatorapiv1.InstallModeDetached {
 		// In Detached mod, also need to remove the external-managed-kubeconfig-registration and external-managed-kubeconfig-work
 		secrets = append(secrets, []string{config.ExternalManagedKubeConfigRegistrationSecret, config.ExternalManagedKubeConfigWorkSecret}...)
 	}
@@ -626,7 +635,7 @@ func (n *klusterletController) cleanUp(
 			return err
 		}
 	}
-	if config.DetachedMode {
+	if config.InstallMode == operatorapiv1.InstallModeDetached {
 		// remove the klusterlet namespace on the management cluster
 		err = n.kubeClient.CoreV1().Namespaces().Delete(ctx, config.KlusterletNamespace, metav1.DeleteOptions{})
 		if err != nil && !errors.IsNotFound(err) {
