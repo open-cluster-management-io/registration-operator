@@ -235,7 +235,7 @@ func newTestControllerDetached(klusterlet *opratorapiv1.Klusterlet, appliedManif
 		klusterletLister:          operatorInformers.Operator().V1().Klusterlets().Lister(),
 		kubeVersion:               kubeVersion,
 		operatorNamespace:         "open-cluster-management",
-		buildManagedClusterClientsDetachedMode: func(kubeClient kubernetes.Interface, namespace, secret string) (*managedClusterClients, error) {
+		buildManagedClusterClientsDetachedMode: func(ctx context.Context, kubeClient kubernetes.Interface, namespace, secret string) (*managedClusterClients, error) {
 			return &managedClusterClients{
 				kubeClient:                fakeManagedKubeClient,
 				apiExtensionClient:        fakeManagedAPIExtensionClient,
