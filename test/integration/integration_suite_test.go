@@ -127,6 +127,9 @@ var _ = ginkgo.BeforeSuite(func(done ginkgo.Done) {
 			RegistrationImagePullSpec: "quay.io/open-cluster-management/registration",
 			WorkImagePullSpec:         "quay.io/open-cluster-management/work",
 			PlacementImagePullSpec:    "quay.io/open-cluster-management/placement",
+			DeployOption: operatorapiv1.DeployOption{
+				Mode: operatorapiv1.InstallModeDefault,
+			},
 		},
 	}
 	_, err = operatorClient.OperatorV1().ClusterManagers().Create(context.Background(), clusterManager, metav1.CreateOptions{})

@@ -330,7 +330,7 @@ func (t *Tester) CheckManagedClusterStatus(clusterName string) error {
 		return nil
 	}
 
-	return fmt.Errorf("condtions are not ready: %v", managedCluster.Status.Conditions)
+	return fmt.Errorf("cluster %s condtions are not ready: %v", clusterName, managedCluster.Status.Conditions)
 }
 
 func newConfigmap(namespace, name string, data map[string]string) *corev1.ConfigMap {
@@ -380,7 +380,14 @@ func (t *Tester) cleanKlusterletResources(klusterletName, clusterName string) er
 
 	gomega.Eventually(func() bool {
 		_, err := t.OperatorClient.OperatorV1().Klusterlets().Get(context.TODO(), klusterletName, metav1.GetOptions{})
-		return errors.IsNotFound(err)
+		if errors.IsNotFound(err) {
+			klog.Infof("klusterlet %s deleted successfully", klusterletName)
+			return true
+		}
+		if err != nil {
+			klog.Infof("get klusterlet %s error: %v", klusterletName, err)
+		}
+		return false
 	}, t.EventuallyTimeout*5, t.EventuallyInterval*5).Should(gomega.BeTrue())
 
 	// clean the managed clusters
@@ -391,7 +398,14 @@ func (t *Tester) cleanKlusterletResources(klusterletName, clusterName string) er
 
 	gomega.Eventually(func() bool {
 		_, err := t.ClusterClient.ClusterV1().ManagedClusters().Get(context.TODO(), clusterName, metav1.GetOptions{})
-		return errors.IsNotFound(err)
+		if errors.IsNotFound(err) {
+			klog.Infof("managed cluster %s deleted successfully", clusterName)
+			return true
+		}
+		if err != nil {
+			klog.Infof("get managed cluster %s error: %v", klusterletName, err)
+		}
+		return false
 	}, t.EventuallyTimeout*5, t.EventuallyInterval*5).Should(gomega.BeTrue())
 
 	return nil
