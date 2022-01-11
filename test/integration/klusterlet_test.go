@@ -117,8 +117,8 @@ var _ = ginkgo.Describe("Klusterlet", func() {
 				}
 
 				// 7 managed static manifests + 8 management static manifests + 2CRDs + 2 deployments(2 duplicated CRDs, but status also recorded in the klusterlet's status)
-				if len(actual.Status.RelatedResources) != 19 {
-					return fmt.Errorf("should get 19 relatedResources, actual got %v", len(actual.Status.RelatedResources))
+				if len(actual.Status.RelatedResources) != 20 {
+					return fmt.Errorf("should get 20 relatedResources, actual got %v", len(actual.Status.RelatedResources))
 				}
 				return nil
 			}, eventuallyTimeout, eventuallyInterval).ShouldNot(gomega.HaveOccurred())
@@ -902,8 +902,8 @@ var _ = ginkgo.Describe("Klusterlet Detached mode", func() {
 				}
 
 				// 7 managed static manifests + 8 management static manifests + 2CRDs + 2 deployments(2 duplicated CRDs, but status also recorded in the klusterlet's status)
-				if len(actual.Status.RelatedResources) != 19 {
-					return fmt.Errorf("should get 19 relatedResources, actual got %v", len(actual.Status.RelatedResources))
+				if len(actual.Status.RelatedResources) != 20 {
+					return fmt.Errorf("should get 20 relatedResources, actual got %v", len(actual.Status.RelatedResources))
 				}
 				return nil
 			}, eventuallyTimeout, eventuallyInterval).ShouldNot(gomega.HaveOccurred())
