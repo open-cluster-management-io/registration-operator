@@ -50,7 +50,6 @@ var (
 	crdV1StaticFiles = []string{
 		"klusterlet/managed/0000_01_work.open-cluster-management.io_appliedmanifestworks.crd.yaml",
 		"klusterlet/managed/0000_02_clusters.open-cluster-management.io_clusterclaims.crd.yaml",
-		"klusterlet/managed/0000_05_clusters.open-cluster-management.io_addonplacementscores.crd.yaml",
 	}
 
 	crdV1beta1StaticFiles = []string{

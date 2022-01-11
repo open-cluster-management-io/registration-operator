@@ -427,8 +427,8 @@ func TestSyncDeploy(t *testing.T) {
 			createCRDObjects = append(createCRDObjects, object)
 		}
 	}
-	if len(createCRDObjects) != 3 {
-		t.Errorf("Expect 3 objects created in the sync loop, actual %d", len(createCRDObjects))
+	if len(createCRDObjects) != 2 {
+		t.Errorf("Expect 2 objects created in the sync loop, actual %d", len(createCRDObjects))
 	}
 
 	operatorAction := controller.operatorClient.Actions()
@@ -517,8 +517,8 @@ func TestSyncDeployDetached(t *testing.T) {
 			createCRDObjectsManaged = append(createCRDObjectsManaged, object)
 		}
 	}
-	if len(createCRDObjectsManaged) != 3 {
-		t.Errorf("Expect 3 objects created in the sync loop, actual %d", len(createCRDObjectsManaged))
+	if len(createCRDObjectsManaged) != 2 {
+		t.Errorf("Expect 2 objects created in the sync loop, actual %d", len(createCRDObjectsManaged))
 	}
 
 	operatorAction := controller.operatorClient.Actions()
@@ -588,8 +588,8 @@ func TestSyncDelete(t *testing.T) {
 		}
 	}
 
-	if len(deleteCRDActions) != 3 {
-		t.Errorf("Expected 3 delete actions, but got %d", len(deleteCRDActions))
+	if len(deleteCRDActions) != 2 {
+		t.Errorf("Expected 2 delete actions, but got %d", len(deleteCRDActions))
 	}
 
 	updateWorkActions := []clienttesting.UpdateActionImpl{}
@@ -670,8 +670,8 @@ func TestSyncDeleteDetached(t *testing.T) {
 		}
 	}
 
-	if len(deleteCRDActions) != 3 {
-		t.Errorf("Expected 3 delete actions, but got %d", len(deleteCRDActions))
+	if len(deleteCRDActions) != 2 {
+		t.Errorf("Expected 2 delete actions, but got %d", len(deleteCRDActions))
 	}
 
 	updateWorkActions := []clienttesting.UpdateActionImpl{}
