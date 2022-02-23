@@ -1052,7 +1052,7 @@ func TestKlusterletNamespace(t *testing.T) {
 				},
 				Spec: operatorapiv1.KlusterletSpec{
 					Namespace:    "",
-					DeployOption: operatorapiv1.DeployOption{},
+					DeployOption: operatorapiv1.KlusterletDeployOption{},
 				}},
 			expect: KlusterletDefaultNamespace,
 		},
@@ -1064,7 +1064,7 @@ func TestKlusterletNamespace(t *testing.T) {
 				},
 				Spec: operatorapiv1.KlusterletSpec{
 					Namespace:    "open-cluster-management-test",
-					DeployOption: operatorapiv1.DeployOption{},
+					DeployOption: operatorapiv1.KlusterletDeployOption{},
 				}},
 			expect: "open-cluster-management-test",
 		},
@@ -1076,7 +1076,7 @@ func TestKlusterletNamespace(t *testing.T) {
 				},
 				Spec: operatorapiv1.KlusterletSpec{
 					Namespace:    "open-cluster-management-test",
-					DeployOption: operatorapiv1.DeployOption{Mode: operatorapiv1.InstallModeDetached},
+					DeployOption: operatorapiv1.KlusterletDeployOption{Mode: operatorapiv1.InstallModeDetached},
 				},
 			},
 			expect: "klusterlet",
@@ -1089,7 +1089,7 @@ func TestKlusterletNamespace(t *testing.T) {
 				},
 				Spec: operatorapiv1.KlusterletSpec{
 					Namespace:    "",
-					DeployOption: operatorapiv1.DeployOption{Mode: operatorapiv1.InstallModeDetached},
+					DeployOption: operatorapiv1.KlusterletDeployOption{Mode: operatorapiv1.InstallModeDetached},
 				},
 			},
 			expect: "klusterlet",
