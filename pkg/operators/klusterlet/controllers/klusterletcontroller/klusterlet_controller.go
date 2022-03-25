@@ -145,6 +145,7 @@ func NewKlusterletController(
 type klusterletConfig struct {
 	KlusterletName            string
 	KlusterletNamespace       string
+	KlusterletAddonNamespace  string
 	RegistrationImage         string
 	WorkImage                 string
 	ClusterName               string
@@ -187,6 +188,7 @@ func (n *klusterletController) sync(ctx context.Context, controllerContext facto
 	config := klusterletConfig{
 		KlusterletName:            klusterlet.Name,
 		KlusterletNamespace:       helpers.KlusterletNamespace(klusterlet),
+		KlusterletAddonNamespace:  helpers.KlusterletAddonNamespace(klusterlet),
 		RegistrationImage:         klusterlet.Spec.RegistrationImagePullSpec,
 		WorkImage:                 klusterlet.Spec.WorkImagePullSpec,
 		ClusterName:               klusterlet.Spec.ClusterName,
@@ -266,17 +268,17 @@ func (n *klusterletController) sync(ctx context.Context, controllerContext facto
 	if err != nil {
 		return err
 	}
+
 	// For now, whether in Default or Hosted mode, the addons will be deployed on the managed cluster.
 	// sync image pull secret from management cluster to managed cluster for addon namespace
 	// TODO(zhujian7): In the future, we may consider deploy addons on the management cluster in Hosted mode.
-	addonNamespace := fmt.Sprintf("%s-addon", config.KlusterletNamespace)
 	// Ensure the klusterlet addon namespace
-	err = n.ensureNamespace(ctx, managedClusterClients.kubeClient, klusterletName, addonNamespace)
+	err = n.ensureNamespace(ctx, managedClusterClients.kubeClient, klusterletName, config.KlusterletAddonNamespace)
 	if err != nil {
 		return err
 	}
 	// Sync pull secret to the klusterlet addon namespace
-	err = n.syncPullSecret(ctx, n.kubeClient, managedClusterClients.kubeClient, klusterlet.Name, addonNamespace, controllerContext.Recorder())
+	err = n.syncPullSecret(ctx, n.kubeClient, managedClusterClients.kubeClient, klusterlet.Name, config.KlusterletAddonNamespace, controllerContext.Recorder())
 	if err != nil {
 		return err
 	}

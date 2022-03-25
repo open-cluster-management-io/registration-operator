@@ -19,6 +19,8 @@ const (
 	ClusterManagerDefaultNamespace = "open-cluster-management-hub"
 	// KlusterletDefaultNamespace is the default namespace of klusterlet
 	KlusterletDefaultNamespace = "open-cluster-management-agent"
+	// AddonDefaultNamespace is the default namespace of addons
+	AddonDefaultNamespace = "open-cluster-management-agent-addon"
 	// BootstrapHubKubeConfig is the secret name of bootstrap kubeconfig secret to connect to hub
 	BootstrapHubKubeConfig = "bootstrap-hub-kubeconfig"
 	// HubKubeConfig is the secret name of kubeconfig secret to connect to hub with mtls

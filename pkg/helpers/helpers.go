@@ -750,6 +750,16 @@ func KlusterletNamespace(klusterlet *operatorapiv1.Klusterlet) string {
 	return klusterlet.Spec.Namespace
 }
 
+// KlusterletAddonNamespace returns the default addon namespace to deploy addons.
+// Note in Hosted mode, will always use "open-cluster-management-agent-addon"
+func KlusterletAddonNamespace(klusterlet *operatorapiv1.Klusterlet) string {
+	if klusterlet.Spec.DeployOption.Mode == operatorapiv1.InstallModeDetached || klusterlet.Spec.DeployOption.Mode == operatorapiv1.InstallModeHosted {
+		return AddonDefaultNamespace
+	}
+
+	return fmt.Sprintf("%s-addon", KlusterletNamespace(klusterlet))
+}
+
 // SyncSecret forked from https://github.com/openshift/library-go/blob/d9cdfbd844ea08465b938c46a16bed2ea23207e4/pkg/operator/resource/resourceapply/core.go#L357,
 // add an addition targetClient parameter to support sync secret to another cluster.
 func SyncSecret(ctx context.Context, client, targetClient coreclientv1.SecretsGetter, recorder events.Recorder,
