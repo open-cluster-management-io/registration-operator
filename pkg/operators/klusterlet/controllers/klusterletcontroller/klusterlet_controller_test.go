@@ -149,7 +149,7 @@ func newTestController(klusterlet *opratorapiv1.Klusterlet, appliedManifestWorks
 	}
 
 	store := operatorInformers.Operator().V1().Klusterlets().Informer().GetStore()
-	store.Add(klusterlet)
+	_ = store.Add(klusterlet)
 
 	return &testController{
 		controller:         hubController,
@@ -241,7 +241,7 @@ func newTestControllerHosted(klusterlet *opratorapiv1.Klusterlet, appliedManifes
 	}
 
 	store := operatorInformers.Operator().V1().Klusterlets().Informer().GetStore()
-	store.Add(klusterlet)
+	_ = store.Add(klusterlet)
 
 	return &testController{
 		controller:         hubController,
@@ -289,9 +289,11 @@ func assertRegistrationDeployment(t *testing.T, actions []clienttesting.Action, 
 	deployment := getDeployments(actions, verb, "registration-agent")
 	if deployment == nil {
 		t.Errorf("registration deployment not found")
+		return
 	}
 	if len(deployment.Spec.Template.Spec.Containers) != 1 {
 		t.Errorf("Expect 1 containers in deployment spec, actual %d", len(deployment.Spec.Template.Spec.Containers))
+		return
 	}
 
 	args := deployment.Spec.Template.Spec.Containers[0].Args
@@ -313,10 +315,12 @@ func assertRegistrationDeployment(t *testing.T, actions []clienttesting.Action, 
 
 	if !equality.Semantic.DeepEqual(args, expectedArgs) {
 		t.Errorf("Expect args %v, but got %v", expectedArgs, args)
+		return
 	}
 
 	if *deployment.Spec.Replicas != replica {
 		t.Errorf("Unexpected registration replica, expect %d, got %d", replica, *deployment.Spec.Replicas)
+		return
 	}
 }
 
@@ -324,9 +328,11 @@ func assertWorkDeployment(t *testing.T, actions []clienttesting.Action, verb, cl
 	deployment := getDeployments(actions, verb, "work-agent")
 	if deployment == nil {
 		t.Errorf("work deployment not found")
+		return
 	}
 	if len(deployment.Spec.Template.Spec.Containers) != 1 {
 		t.Errorf("Expect 1 containers in deployment spec, actual %d", len(deployment.Spec.Template.Spec.Containers))
+		return
 	}
 	args := deployment.Spec.Template.Spec.Containers[0].Args
 	expectArgs := []string{
@@ -346,9 +352,11 @@ func assertWorkDeployment(t *testing.T, actions []clienttesting.Action, verb, cl
 
 	if !equality.Semantic.DeepEqual(args, expectArgs) {
 		t.Errorf("Expect args %v, but got %v", expectArgs, args)
+		return
 	}
 	if *deployment.Spec.Replicas != replica {
 		t.Errorf("Unexpected registration replica, expect %d, got %d", replica, *deployment.Spec.Replicas)
+		return
 	}
 }
 
@@ -356,6 +364,7 @@ func ensureObject(t *testing.T, object runtime.Object, klusterlet *opratorapiv1.
 	access, err := meta.Accessor(object)
 	if err != nil {
 		t.Errorf("Unable to access objectmeta: %v", err)
+		return
 	}
 
 	namespace := helpers.AgentNamespace(klusterlet)
@@ -367,6 +376,7 @@ func ensureObject(t *testing.T, object runtime.Object, klusterlet *opratorapiv1.
 				fmt.Sprintf("%s-registration-agent", klusterlet.Name), namespace)
 			if klusterlet.Spec.RegistrationImagePullSpec != o.Spec.Template.Spec.Containers[0].Image {
 				t.Errorf("Image does not match to the expected.")
+				return
 			}
 		} else if strings.Contains(access.GetName(), "work") {
 			testinghelper.AssertEqualNameNamespace(
@@ -374,9 +384,11 @@ func ensureObject(t *testing.T, object runtime.Object, klusterlet *opratorapiv1.
 				fmt.Sprintf("%s-work-agent", klusterlet.Name), namespace)
 			if klusterlet.Spec.WorkImagePullSpec != o.Spec.Template.Spec.Containers[0].Image {
 				t.Errorf("Image does not match to the expected.")
+				return
 			}
 		} else {
 			t.Errorf("Unexpected deployment")
+			return
 		}
 	}
 }
@@ -761,7 +773,7 @@ func TestReplica(t *testing.T) {
 		},
 	}
 
-	controller.operatorStore.Update(klusterlet)
+	_ = controller.operatorStore.Update(klusterlet)
 
 	controller.kubeClient.ClearActions()
 	controller.operatorClient.ClearActions()
@@ -833,7 +845,7 @@ func TestClusterNameChange(t *testing.T) {
 	controller.operatorClient.ClearActions()
 	klusterlet = newKlusterlet("klusterlet", "testns", "")
 	klusterlet.Generation = 1
-	controller.operatorStore.Update(klusterlet)
+	_ = controller.operatorStore.Update(klusterlet)
 
 	err = controller.controller.sync(context.TODO(), syncContext)
 	if err != nil {
@@ -869,7 +881,7 @@ func TestClusterNameChange(t *testing.T) {
 	klusterlet.Spec.ExternalServerURLs = []opratorapiv1.ServerURL{{URL: "https://localhost"}}
 	controller.kubeClient.ClearActions()
 	controller.operatorClient.ClearActions()
-	controller.operatorStore.Update(klusterlet)
+	_ = controller.operatorStore.Update(klusterlet)
 
 	err = controller.controller.sync(context.TODO(), syncContext)
 	if err != nil {
@@ -970,7 +982,7 @@ func TestDeployOnKube111(t *testing.T) {
 	// Delete the klusterlet
 	now := metav1.Now()
 	klusterlet.ObjectMeta.SetDeletionTimestamp(&now)
-	controller.operatorStore.Update(klusterlet)
+	_ = controller.operatorStore.Update(klusterlet)
 	controller.kubeClient.ClearActions()
 	err = controller.controller.sync(ctx, syncContext)
 	if err != nil {

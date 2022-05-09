@@ -107,14 +107,14 @@ func TestSync(t *testing.T) {
 			for _, object := range c.objects {
 				switch object.(type) {
 				case *corev1.Secret:
-					secretStore.Add(object)
+					_ = secretStore.Add(object)
 				}
 			}
 
 			fakeOperatorClient := fakeoperatorclient.NewSimpleClientset()
 			operatorInformers := operatorinformers.NewSharedInformerFactory(fakeOperatorClient, 5*time.Minute)
 			operatorStore := operatorInformers.Operator().V1().Klusterlets().Informer().GetStore()
-			operatorStore.Add(newKlusterlet("test", "test"))
+			_ = operatorStore.Add(newKlusterlet("test", "test"))
 
 			controller := &bootstrapController{
 				kubeClient:       fakeKubeClient,
@@ -164,7 +164,7 @@ func TestBootstrapSecretQueueKeyFunc(t *testing.T) {
 			fakeOperatorClient := fakeoperatorclient.NewSimpleClientset(c.klusterlet)
 			operatorInformers := operatorinformers.NewSharedInformerFactory(fakeOperatorClient, 5*time.Minute)
 			store := operatorInformers.Operator().V1().Klusterlets().Informer().GetStore()
-			store.Add(c.klusterlet)
+			_ = store.Add(c.klusterlet)
 			keyFunc := bootstrapSecretQueueKeyFunc(operatorInformers.Operator().V1().Klusterlets().Lister())
 			actualKey := keyFunc(c.object)
 			if actualKey != c.expectedKey {

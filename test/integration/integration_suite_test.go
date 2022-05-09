@@ -38,7 +38,7 @@ const (
 	eventuallyTimeout  = 30 // seconds
 	eventuallyInterval = 1  // seconds
 	hubNamespace       = "open-cluster-management-hub"
-	spokeNamespace     = "open-cluster-management-agent"
+	// spokeNamespace     = "open-cluster-management-agent"
 	clusterManagerName = "hub"
 	hubNamespaceHosted = "hub"
 )

@@ -67,7 +67,7 @@ func newTestController(klusterlet *operatorapiv1.Klusterlet, objects ...runtime.
 	}
 
 	store := operatorInformers.Operator().V1().Klusterlets().Informer().GetStore()
-	store.Add(klusterlet)
+	_ = store.Add(klusterlet)
 
 	return &testController{
 		controller:     klusterletController,

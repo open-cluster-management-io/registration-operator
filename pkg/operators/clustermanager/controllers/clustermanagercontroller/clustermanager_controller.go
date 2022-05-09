@@ -118,8 +118,8 @@ var (
 const (
 	clusterManagerFinalizer = "operator.open-cluster-management.io/cluster-manager-cleanup"
 	clusterManagerApplied   = "Applied"
-	clusterManagerAvailable = "Available"
-	caBundleConfigmap       = "ca-bundle-configmap"
+	// clusterManagerAvailable = "Available" // not used
+	caBundleConfigmap = "ca-bundle-configmap"
 )
 
 type clusterManagerController struct {

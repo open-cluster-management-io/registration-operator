@@ -98,7 +98,7 @@ var _ = ginkgo.Describe("Klusterlet Hosted mode", func() {
 		})
 
 		ginkgo.AfterEach(func() {
-			operatorClient.OperatorV1().Klusterlets().Delete(context.Background(), klusterlet.Name, metav1.DeleteOptions{})
+			_ = operatorClient.OperatorV1().Klusterlets().Delete(context.Background(), klusterlet.Name, metav1.DeleteOptions{})
 		})
 
 		ginkgo.It("should have expected resource created successfully", func() {

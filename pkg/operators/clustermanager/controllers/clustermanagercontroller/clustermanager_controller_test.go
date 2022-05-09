@@ -75,7 +75,7 @@ func newTestController(clustermanager *operatorapiv1.ClusterManager) *testContro
 	}
 
 	store := operatorInformers.Operator().V1().ClusterManagers().Informer().GetStore()
-	store.Add(clustermanager)
+	_ = store.Add(clustermanager)
 
 	return &testController{
 		clusterManagerController: clusterManagerController,

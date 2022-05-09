@@ -90,7 +90,7 @@ func TestKlusterletSecretQueueKeyFunc(t *testing.T) {
 			fakeOperatorClient := fakeoperatorclient.NewSimpleClientset(c.klusterlet)
 			operatorInformers := operatorinformers.NewSharedInformerFactory(fakeOperatorClient, 5*time.Minute)
 			store := operatorInformers.Operator().V1().Klusterlets().Informer().GetStore()
-			store.Add(c.klusterlet)
+			_ = store.Add(c.klusterlet)
 			keyFunc := KlusterletSecretQueueKeyFunc(operatorInformers.Operator().V1().Klusterlets().Lister())
 			actualKey := keyFunc(c.object)
 			if actualKey != c.expectedKey {
@@ -138,7 +138,7 @@ func TestKlusterletDeploymentQueueKeyFunc(t *testing.T) {
 			fakeOperatorClient := fakeoperatorclient.NewSimpleClientset(c.klusterlet)
 			operatorInformers := operatorinformers.NewSharedInformerFactory(fakeOperatorClient, 5*time.Minute)
 			store := operatorInformers.Operator().V1().Klusterlets().Informer().GetStore()
-			store.Add(c.klusterlet)
+			_ = store.Add(c.klusterlet)
 			keyFunc := KlusterletDeploymentQueueKeyFunc(operatorInformers.Operator().V1().Klusterlets().Lister())
 			actualKey := keyFunc(c.object)
 			if actualKey != c.expectedKey {
@@ -204,7 +204,7 @@ func TestClusterManagerDeploymentQueueKeyFunc(t *testing.T) {
 			fakeOperatorClient := fakeoperatorclient.NewSimpleClientset(c.clusterManager)
 			operatorInformers := operatorinformers.NewSharedInformerFactory(fakeOperatorClient, 5*time.Minute)
 			store := operatorInformers.Operator().V1().ClusterManagers().Informer().GetStore()
-			store.Add(c.clusterManager)
+			_ = store.Add(c.clusterManager)
 			keyFunc := ClusterManagerDeploymentQueueKeyFunc(operatorInformers.Operator().V1().ClusterManagers().Lister())
 			actualKey := keyFunc(c.object)
 			if actualKey != c.expectedKey {

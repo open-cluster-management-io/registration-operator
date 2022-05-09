@@ -26,7 +26,7 @@ var _ = Describe("Create klusterlet CR", func() {
 
 	AfterEach(func() {
 		By(fmt.Sprintf("clean klusterlet %v resources after the test case", klusterletName))
-		t.cleanKlusterletResources(klusterletName, clusterName)
+		_ = t.cleanKlusterletResources(klusterletName, clusterName)
 	})
 
 	// This test case is helpful for the Backward compatibility

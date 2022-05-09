@@ -99,7 +99,7 @@ func newTestController(klusterlet *operatorapiv1.Klusterlet, objects ...runtime.
 	}
 
 	store := operatorInformers.Operator().V1().Klusterlets().Informer().GetStore()
-	store.Add(klusterlet)
+	_ = store.Add(klusterlet)
 
 	return &testController{
 		controller:     klusterletController,
@@ -121,7 +121,7 @@ func TestSync(t *testing.T) {
 			return
 		}
 		ssar := &authorizationv1.SelfSubjectAccessReview{}
-		json.Unmarshal(data, ssar)
+		_ = json.Unmarshal(data, ssar)
 		if ssar.Spec.ResourceAttributes.Resource == "managedclusters" {
 			if ssar.Spec.ResourceAttributes.Subresource == "status" {
 				ssar.Status.Allowed = response.allowToOperateManagedClusterStatus
@@ -136,7 +136,7 @@ func TestSync(t *testing.T) {
 
 		w.Header().Set("Content-type", "application/json")
 		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(ssar)
+		_ = json.NewEncoder(w).Encode(ssar)
 	}))
 	defer apiServer.Close()
 

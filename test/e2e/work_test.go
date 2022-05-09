@@ -27,7 +27,7 @@ var _ = Describe("Create klusterlet and then create a configmap by manifestwork"
 
 	AfterEach(func() {
 		By(fmt.Sprintf("clean klusterlet %s resources after the test case, clusterName: %s", klusterletName, clusterName))
-		t.cleanKlusterletResources(klusterletName, clusterName)
+		_ = t.cleanKlusterletResources(klusterletName, clusterName)
 	})
 
 	It("Create configmap using manifestwork and then delete klusterlet", func() {
