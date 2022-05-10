@@ -125,7 +125,7 @@ func newServiceAccount(name, namespace string, referenceSecret string) *corev1.S
 	}
 }
 
-func newTestController(klusterlet *opratorapiv1.Klusterlet, appliedManifestWorks []runtime.Object, objects ...runtime.Object) *testController {
+func newTestController(t *testing.T, klusterlet *opratorapiv1.Klusterlet, appliedManifestWorks []runtime.Object, objects ...runtime.Object) *testController {
 	fakeKubeClient := fakekube.NewSimpleClientset(objects...)
 	fakeAPIExtensionClient := fakeapiextensions.NewSimpleClientset()
 	fakeOperatorClient := fakeoperatorclient.NewSimpleClientset(klusterlet)
@@ -404,7 +404,7 @@ func TestSyncDeploy(t *testing.T) {
 	hubKubeConfigSecret := newSecret(helpers.HubKubeConfig, "testns")
 	hubKubeConfigSecret.Data["kubeconfig"] = []byte("dummuykubeconnfig")
 	namespace := newNamespace("testns")
-	controller := newTestController(klusterlet, nil, bootStrapSecret, hubKubeConfigSecret, namespace)
+	controller := newTestController(t, klusterlet, nil, bootStrapSecret, hubKubeConfigSecret, namespace)
 	syncContext := testinghelper.NewFakeSyncContext(t, "klusterlet")
 
 	err := controller.controller.sync(context.TODO(), syncContext)
@@ -568,7 +568,7 @@ func TestSyncDelete(t *testing.T) {
 		newAppliedManifestWorks("testhost", []string{appliedManifestWorkFinalizer}, true),
 		newAppliedManifestWorks("testhost-2", []string{appliedManifestWorkFinalizer}, false),
 	}
-	controller := newTestController(klusterlet, appliedManifestWorks, namespace, bootstrapKubeConfigSecret)
+	controller := newTestController(t, klusterlet, appliedManifestWorks, namespace, bootstrapKubeConfigSecret)
 	syncContext := testinghelper.NewFakeSyncContext(t, "klusterlet")
 
 	err := controller.controller.sync(context.TODO(), syncContext)
@@ -757,7 +757,7 @@ func TestReplica(t *testing.T) {
 		hubSecret,
 	}
 
-	controller := newTestController(klusterlet, nil, objects...)
+	controller := newTestController(t, klusterlet, nil, objects...)
 	syncContext := testinghelper.NewFakeSyncContext(t, "klusterlet")
 
 	err := controller.controller.sync(context.TODO(), syncContext)
@@ -821,7 +821,7 @@ func TestClusterNameChange(t *testing.T) {
 	hubSecret := newSecret(helpers.HubKubeConfig, "testns")
 	hubSecret.Data["kubeconfig"] = []byte("dummuykubeconnfig")
 	hubSecret.Data["cluster-name"] = []byte("cluster1")
-	controller := newTestController(klusterlet, nil, bootStrapSecret, hubSecret, namespace)
+	controller := newTestController(t, klusterlet, nil, bootStrapSecret, hubSecret, namespace)
 	syncContext := testinghelper.NewFakeSyncContext(t, "klusterlet")
 
 	err := controller.controller.sync(context.TODO(), syncContext)
@@ -908,7 +908,7 @@ func TestSyncWithPullSecret(t *testing.T) {
 	hubKubeConfigSecret.Data["kubeconfig"] = []byte("dummuykubeconnfig")
 	namespace := newNamespace("testns")
 	pullSecret := newSecret(imagePullSecret, "open-cluster-management")
-	controller := newTestController(klusterlet, nil, bootStrapSecret, hubKubeConfigSecret, namespace, pullSecret)
+	controller := newTestController(t, klusterlet, nil, bootStrapSecret, hubKubeConfigSecret, namespace, pullSecret)
 	syncContext := testinghelper.NewFakeSyncContext(t, "klusterlet")
 
 	err := controller.controller.sync(context.TODO(), syncContext)
@@ -937,7 +937,7 @@ func TestDeployOnKube111(t *testing.T) {
 	hubKubeConfigSecret := newSecret(helpers.HubKubeConfig, "testns")
 	hubKubeConfigSecret.Data["kubeconfig"] = []byte("dummuykubeconnfig")
 	namespace := newNamespace("testns")
-	controller := newTestController(klusterlet, nil, bootStrapSecret, hubKubeConfigSecret, namespace)
+	controller := newTestController(t, klusterlet, nil, bootStrapSecret, hubKubeConfigSecret, namespace)
 	kubeVersion, _ := version.ParseGeneric("v1.11.0")
 	controller.controller.kubeVersion = kubeVersion
 	syncContext := testinghelper.NewFakeSyncContext(t, "klusterlet")

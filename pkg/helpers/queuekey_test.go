@@ -140,7 +140,7 @@ func TestKlusterletDeploymentQueueKeyFunc(t *testing.T) {
 			fakeOperatorClient := fakeoperatorclient.NewSimpleClientset(c.klusterlet)
 			operatorInformers := operatorinformers.NewSharedInformerFactory(fakeOperatorClient, 5*time.Minute)
 			store := operatorInformers.Operator().V1().Klusterlets().Informer().GetStore()
-			if err : = store.Add(c.klusterlet); err != nil {
+			if err := store.Add(c.klusterlet); err != nil {
 				t.Fatal(err)
 			}
 			keyFunc := KlusterletDeploymentQueueKeyFunc(operatorInformers.Operator().V1().Klusterlets().Lister())
