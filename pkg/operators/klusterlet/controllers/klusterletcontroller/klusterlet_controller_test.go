@@ -149,7 +149,9 @@ func newTestController(klusterlet *opratorapiv1.Klusterlet, appliedManifestWorks
 	}
 
 	store := operatorInformers.Operator().V1().Klusterlets().Informer().GetStore()
-	_ = store.Add(klusterlet)
+	if err := store.Add(klusterlet); err != nil {
+		t.Fatal(err)
+	}
 
 	return &testController{
 		controller:         hubController,
@@ -162,7 +164,7 @@ func newTestController(klusterlet *opratorapiv1.Klusterlet, appliedManifestWorks
 	}
 }
 
-func newTestControllerHosted(klusterlet *opratorapiv1.Klusterlet, appliedManifestWorks []runtime.Object, objects ...runtime.Object) *testController {
+func newTestControllerHosted(t *testing.T, klusterlet *opratorapiv1.Klusterlet, appliedManifestWorks []runtime.Object, objects ...runtime.Object) *testController {
 	fakeKubeClient := fakekube.NewSimpleClientset(objects...)
 	fakeAPIExtensionClient := fakeapiextensions.NewSimpleClientset()
 	fakeOperatorClient := fakeoperatorclient.NewSimpleClientset(klusterlet)
@@ -241,7 +243,9 @@ func newTestControllerHosted(klusterlet *opratorapiv1.Klusterlet, appliedManifes
 	}
 
 	store := operatorInformers.Operator().V1().Klusterlets().Informer().GetStore()
-	_ = store.Add(klusterlet)
+	if err := store.Add(klusterlet); err != nil {
+		t.Fatal(err)
+	}
 
 	return &testController{
 		controller:         hubController,
@@ -462,7 +466,7 @@ func TestSyncDeployHosted(t *testing.T) {
 	// externalManagedSecret.Data["kubeconfig"] = []byte("dummuykubeconnfig")
 	namespace := newNamespace(agentNamespace)
 	pullSecret := newSecret(imagePullSecret, "open-cluster-management")
-	controller := newTestControllerHosted(klusterlet, nil, bootStrapSecret, hubKubeConfigSecret, namespace, pullSecret /*externalManagedSecret*/)
+	controller := newTestControllerHosted(t, klusterlet, nil, bootStrapSecret, hubKubeConfigSecret, namespace, pullSecret /*externalManagedSecret*/)
 	syncContext := testinghelper.NewFakeSyncContext(t, "klusterlet")
 
 	err := controller.controller.sync(context.TODO(), syncContext)
@@ -631,7 +635,7 @@ func TestSyncDeleteHosted(t *testing.T) {
 		newAppliedManifestWorks("testhost", []string{appliedManifestWorkFinalizer}, true),
 		newAppliedManifestWorks("testhost-2", []string{appliedManifestWorkFinalizer}, false),
 	}
-	controller := newTestControllerHosted(klusterlet, appliedManifestWorks, bootstrapKubeConfigSecret, namespace /*externalManagedSecret*/)
+	controller := newTestControllerHosted(t, klusterlet, appliedManifestWorks, bootstrapKubeConfigSecret, namespace /*externalManagedSecret*/)
 	syncContext := testinghelper.NewFakeSyncContext(t, klusterlet.Name)
 
 	err := controller.controller.sync(context.TODO(), syncContext)
@@ -773,7 +777,9 @@ func TestReplica(t *testing.T) {
 		},
 	}
 
-	_ = controller.operatorStore.Update(klusterlet)
+	if err := controller.operatorStore.Update(klusterlet); err != nil {
+		t.Fatal(err)
+	}
 
 	controller.kubeClient.ClearActions()
 	controller.operatorClient.ClearActions()
@@ -845,7 +851,9 @@ func TestClusterNameChange(t *testing.T) {
 	controller.operatorClient.ClearActions()
 	klusterlet = newKlusterlet("klusterlet", "testns", "")
 	klusterlet.Generation = 1
-	_ = controller.operatorStore.Update(klusterlet)
+	if err := controller.operatorStore.Update(klusterlet); err != nil {
+		t.Fatal(err)
+	}
 
 	err = controller.controller.sync(context.TODO(), syncContext)
 	if err != nil {
@@ -881,7 +889,9 @@ func TestClusterNameChange(t *testing.T) {
 	klusterlet.Spec.ExternalServerURLs = []opratorapiv1.ServerURL{{URL: "https://localhost"}}
 	controller.kubeClient.ClearActions()
 	controller.operatorClient.ClearActions()
-	_ = controller.operatorStore.Update(klusterlet)
+	if err := controller.operatorStore.Update(klusterlet); err != nil {
+		t.Fatal(err)
+	}
 
 	err = controller.controller.sync(context.TODO(), syncContext)
 	if err != nil {
@@ -982,7 +992,9 @@ func TestDeployOnKube111(t *testing.T) {
 	// Delete the klusterlet
 	now := metav1.Now()
 	klusterlet.ObjectMeta.SetDeletionTimestamp(&now)
-	_ = controller.operatorStore.Update(klusterlet)
+	if err := controller.operatorStore.Update(klusterlet); err != nil {
+		t.Fatal(err)
+	}
 	controller.kubeClient.ClearActions()
 	err = controller.controller.sync(ctx, syncContext)
 	if err != nil {

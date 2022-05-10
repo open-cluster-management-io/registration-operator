@@ -43,11 +43,6 @@ type klusterletLocker struct {
 }
 
 const (
-	// TODO: The following SSARs are not used yet.
-	// bootstrapSecret         = "BootstrapSecret"
-	// bootstrapSecretDegraded = "BootstrapSecretDegraded"
-	// hubConfigSecret         = "HubConfigSecret"
-	// hubConfigSecretDegraded = "HubConfigSecretDegraded"
 	hubConnectionDegraded = "HubConnectionDegraded"
 )
 
