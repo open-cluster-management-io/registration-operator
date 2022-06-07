@@ -81,6 +81,14 @@ func newKlusterlet(name, namespace, clustername string) *opratorapiv1.Klusterlet
 			ClusterName:               clustername,
 			Namespace:                 namespace,
 			ExternalServerURLs:        []opratorapiv1.ServerURL{},
+			RegistrationConfiguration: &opratorapiv1.RegistrationConfiguration{
+				FeatureGates: []opratorapiv1.FeatureGate{
+					{
+						Feature: "AddonManagement",
+						Mode: "Enable",
+					},
+				},
+			},
 		},
 	}
 }

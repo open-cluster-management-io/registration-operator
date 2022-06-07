@@ -31,6 +31,7 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/util/retry"
+	"k8s.io/component-base/featuregate"
 	"k8s.io/klog/v2"
 	apiregistrationv1 "k8s.io/kube-aggregator/pkg/apis/apiregistration/v1"
 	apiregistrationclient "k8s.io/kube-aggregator/pkg/client/clientset_generated/clientset/typed/apiregistration/v1"
@@ -46,12 +47,34 @@ import (
 const (
 	defaultReplica = 3
 	singleReplica  = 1
+
+	ComponentHubKey   = "hub"
+	ComponentSpokeKey = "spoke"
+
+	ClusterClaim               featuregate.Feature = "ClusterClaim"
+	AddonManagement            featuregate.Feature = "AddonManagement"
+	DefaultClusterSet          featuregate.Feature = "DefaultClusterSet"
+	V1beta1CSRAPICompatibility featuregate.Feature = "V1beta1CSRAPICompatibility"
 )
 
 var (
 	genericScheme = runtime.NewScheme()
 	genericCodecs = serializer.NewCodecFactory(genericScheme)
 	genericCodec  = genericCodecs.UniversalDeserializer()
+
+	HubRegistrationFeatureGates = map[featuregate.Feature]featuregate.FeatureSpec{
+		DefaultClusterSet: {Default: false, PreRelease: featuregate.Alpha},
+	}
+	SpokeRegistrationFeatureGates = map[featuregate.Feature]featuregate.FeatureSpec{
+		ClusterClaim:               {Default: true, PreRelease: featuregate.Beta},
+		AddonManagement:            {Default: false, PreRelease: featuregate.Alpha},
+		V1beta1CSRAPICompatibility: {Default: false, PreRelease: featuregate.Alpha},
+	}
+
+	RegistrationFeatureGatesMap = map[string]map[featuregate.Feature]featuregate.FeatureSpec{
+		ComponentHubKey:   HubRegistrationFeatureGates,
+		ComponentSpokeKey: SpokeRegistrationFeatureGates,
+	}
 )
 
 func init() {
@@ -846,4 +869,30 @@ func GetHubKubeconfig(ctx context.Context,
 		// backward compatible with previous crd.
 		return operatorKubeconfig, nil
 	}
+}
+
+func FeatureGatesArgs(featureGates []operatorapiv1.FeatureGate, component string) (featureGatesArgs []string, invalidFeatureGates []string) {
+	for _, featureGate := range featureGates {
+		if !isValidRegistrationFeatureGate(featureGate.Feature, component) {
+			invalidFeatureGates = append(invalidFeatureGates, featureGate.Feature)
+		} else {
+			value := false
+			if featureGate.Mode == operatorapiv1.FeatureGateModeTypeEnable {
+				value = true
+			}
+			featureGatesArgs = append(featureGatesArgs, fmt.Sprintf("--feature-gates=%s=%t", featureGate.Feature, value))
+		}
+	}
+
+	return featureGatesArgs, invalidFeatureGates
+}
+
+func isValidRegistrationFeatureGate(feature string, component string) bool {
+	if featureGates, ok := RegistrationFeatureGatesMap[component]; ok {
+		if _, ok := featureGates[featuregate.Feature(feature)]; ok {
+			return true
+		}
+	}
+
+	return false
 }

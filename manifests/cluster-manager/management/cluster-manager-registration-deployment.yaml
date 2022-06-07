@@ -49,6 +49,9 @@ spec:
           {{ if .HostedMode }}
           - "--kubeconfig=/var/run/secrets/hub/kubeconfig"
           {{ end }}
+          {{range .RegistrationFeatureGates}}
+          - {{ . }}
+          {{ end }}
         securityContext:
           allowPrivilegeEscalation: false
           capabilities:
