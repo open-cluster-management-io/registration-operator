@@ -85,7 +85,7 @@ func newKlusterlet(name, namespace, clustername string) *opratorapiv1.Klusterlet
 				FeatureGates: []opratorapiv1.FeatureGate{
 					{
 						Feature: "AddonManagement",
-						Mode: "Enable",
+						Mode:    "Enable",
 					},
 				},
 			},

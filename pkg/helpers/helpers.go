@@ -36,6 +36,7 @@ import (
 	apiregistrationv1 "k8s.io/kube-aggregator/pkg/apis/apiregistration/v1"
 	apiregistrationclient "k8s.io/kube-aggregator/pkg/client/clientset_generated/clientset/typed/apiregistration/v1"
 	operatorv1client "open-cluster-management.io/api/client/operator/clientset/versioned/typed/operator/v1"
+	ocmfeature "open-cluster-management.io/api/feature"
 	operatorapiv1 "open-cluster-management.io/api/operator/v1"
 
 	"github.com/openshift/api"
@@ -50,11 +51,6 @@ const (
 
 	ComponentHubKey   = "hub"
 	ComponentSpokeKey = "spoke"
-
-	ClusterClaim               featuregate.Feature = "ClusterClaim"
-	AddonManagement            featuregate.Feature = "AddonManagement"
-	DefaultClusterSet          featuregate.Feature = "DefaultClusterSet"
-	V1beta1CSRAPICompatibility featuregate.Feature = "V1beta1CSRAPICompatibility"
 )
 
 var (
@@ -62,18 +58,9 @@ var (
 	genericCodecs = serializer.NewCodecFactory(genericScheme)
 	genericCodec  = genericCodecs.UniversalDeserializer()
 
-	HubRegistrationFeatureGates = map[featuregate.Feature]featuregate.FeatureSpec{
-		DefaultClusterSet: {Default: false, PreRelease: featuregate.Alpha},
-	}
-	SpokeRegistrationFeatureGates = map[featuregate.Feature]featuregate.FeatureSpec{
-		ClusterClaim:               {Default: true, PreRelease: featuregate.Beta},
-		AddonManagement:            {Default: false, PreRelease: featuregate.Alpha},
-		V1beta1CSRAPICompatibility: {Default: false, PreRelease: featuregate.Alpha},
-	}
-
 	RegistrationFeatureGatesMap = map[string]map[featuregate.Feature]featuregate.FeatureSpec{
-		ComponentHubKey:   HubRegistrationFeatureGates,
-		ComponentSpokeKey: SpokeRegistrationFeatureGates,
+		ComponentHubKey:   ocmfeature.DefaultHubRegistrationFeatureGates,
+		ComponentSpokeKey: ocmfeature.DefaultSpokeRegistrationFeatureGates,
 	}
 )
 
