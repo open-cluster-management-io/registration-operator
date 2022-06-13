@@ -546,21 +546,24 @@ func TestSyncDeployHosted(t *testing.T) {
 		klog.Infof("operator actions, verb:%v \t resource:%v \t namespace:%v", action.GetVerb(), action.GetResource(), action.GetNamespace())
 	}
 
-	if len(operatorAction) != 4 {
-		t.Errorf("Expect 4 actions in the sync loop, actual %#v", len(operatorAction))
+	if len(operatorAction) != 6 {
+		t.Errorf("Expect 6 actions in the sync loop, actual %#v", len(operatorAction))
 	}
 
 	testinghelper.AssertGet(t, operatorAction[0], "operator.open-cluster-management.io", "v1", "klusterlets")
 	testinghelper.AssertAction(t, operatorAction[1], "update")
 	testinghelper.AssertGet(t, operatorAction[2], "operator.open-cluster-management.io", "v1", "klusterlets")
 	testinghelper.AssertAction(t, operatorAction[3], "update")
+	testinghelper.AssertGet(t, operatorAction[4], "operator.open-cluster-management.io", "v1", "klusterlets")
+	testinghelper.AssertAction(t, operatorAction[5], "update")
 
 	conditionReady := testinghelper.NamedCondition(klusterletReadyToApply, "KlusterletPrepared", metav1.ConditionTrue)
 	conditionApplied := testinghelper.NamedCondition(klusterletApplied, "KlusterletApplied", metav1.ConditionTrue)
+	conditionFeaturesValid := testinghelper.NamedCondition(spokeRegistrationFeatureGatesInvalid, "FeatureGatesAllValid", metav1.ConditionTrue)
 	testinghelper.AssertOnlyConditions(
-		t, operatorAction[1].(clienttesting.UpdateActionImpl).Object, conditionReady)
+		t, operatorAction[3].(clienttesting.UpdateActionImpl).Object, conditionReady, conditionFeaturesValid)
 	testinghelper.AssertOnlyConditions(
-		t, operatorAction[3].(clienttesting.UpdateActionImpl).Object, conditionReady, conditionApplied)
+		t, operatorAction[5].(clienttesting.UpdateActionImpl).Object, conditionReady, conditionApplied, conditionFeaturesValid)
 }
 
 // TestSyncDelete test cleanup hub deploy

@@ -4,8 +4,10 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
-	"reflect"
-
+	"github.com/openshift/api"
+	"github.com/openshift/library-go/pkg/operator/events"
+	"github.com/openshift/library-go/pkg/operator/resource/resourceapply"
+	"github.com/openshift/library-go/pkg/operator/resource/resourcemerge"
 	admissionv1 "k8s.io/api/admissionregistration/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -38,11 +40,7 @@ import (
 	operatorv1client "open-cluster-management.io/api/client/operator/clientset/versioned/typed/operator/v1"
 	ocmfeature "open-cluster-management.io/api/feature"
 	operatorapiv1 "open-cluster-management.io/api/operator/v1"
-
-	"github.com/openshift/api"
-	"github.com/openshift/library-go/pkg/operator/events"
-	"github.com/openshift/library-go/pkg/operator/resource/resourceapply"
-	"github.com/openshift/library-go/pkg/operator/resource/resourcemerge"
+	"reflect"
 )
 
 const (
@@ -858,6 +856,7 @@ func GetHubKubeconfig(ctx context.Context,
 	}
 }
 
+// FeatureGatesArgs is used to generate feature gates args
 func FeatureGatesArgs(featureGates []operatorapiv1.FeatureGate, component string) (featureGatesArgs []string, invalidFeatureGates []string) {
 	for _, featureGate := range featureGates {
 		if !isValidRegistrationFeatureGate(featureGate.Feature, component) {

@@ -120,7 +120,7 @@ const (
 	clusterManagerApplied   = "Applied"
 	caBundleConfigmap       = "ca-bundle-configmap"
 
-	hubRegistrationFeatureGatesInvalid = "InvalidRegistrationFeatureGates"
+	hubRegistrationFeatureGatesValid = "ValidRegistrationFeatureGates"
 )
 
 type clusterManagerController struct {
@@ -205,18 +205,27 @@ func (n *clusterManagerController) sync(ctx context.Context, controllerContext f
 		HostedMode:              clusterManager.Spec.DeployOption.Mode == operatorapiv1.InstallModeHosted,
 	}
 
+	conditions := &clusterManager.Status.Conditions
+
 	// If there are some invalid feature gates of registration, will output condition `InvalidRegistrationFeatureGates` in ClusterManager.
 	if clusterManager.Spec.RegistrationConfiguration != nil && len(clusterManager.Spec.RegistrationConfiguration.FeatureGates) > 0 {
-		featureGateArgs, invalidFeatureGates := helpers.FeatureGatesArgs(clusterManager.Spec.RegistrationConfiguration.FeatureGates, helpers.ComponentHubKey)
+		featureGateArgs, invalidFeatureGates := helpers.FeatureGatesArgs(
+			clusterManager.Spec.RegistrationConfiguration.FeatureGates, helpers.ComponentHubKey)
 		if len(invalidFeatureGates) == 0 {
 			config.RegistrationFeatureGates = featureGateArgs
+			meta.SetStatusCondition(conditions, metav1.Condition{
+				Type:    hubRegistrationFeatureGatesValid,
+				Status:  metav1.ConditionTrue,
+				Reason:  "FeatureGatesAllValid",
+				Message: "Registration feature gates of cluster manager are all valid",
+			})
 		} else {
 			invalidFGErr := fmt.Errorf("There are some invalid feature gates of registration: %v ", invalidFeatureGates)
-			_, _, _ = helpers.UpdateClusterManagerStatus(ctx, n.clusterManagerClient, clusterManagerName, helpers.UpdateClusterManagerConditionFn(metav1.Condition{
-				Type: hubRegistrationFeatureGatesInvalid, Status: metav1.ConditionFalse, Reason: "InvalidFeatureGatesExisting",
+			_, _, updateError := helpers.UpdateClusterManagerStatus(ctx, n.clusterManagerClient, clusterManagerName, helpers.UpdateClusterManagerConditionFn(metav1.Condition{
+				Type: hubRegistrationFeatureGatesValid, Status: metav1.ConditionFalse, Reason: "InvalidFeatureGatesExisting",
 				Message: invalidFGErr.Error(),
 			}))
-			return invalidFGErr
+			return updateError
 		}
 	}
 
@@ -296,7 +305,6 @@ func (n *clusterManagerController) sync(ctx context.Context, controllerContext f
 
 	// Update status
 	errs := append(hubAppliedErrs, managementAppliedErrs...)
-	conditions := &clusterManager.Status.Conditions
 	observedGeneration := clusterManager.Status.ObservedGeneration
 	if len(errs) == 0 {
 		meta.SetStatusCondition(conditions, metav1.Condition{
