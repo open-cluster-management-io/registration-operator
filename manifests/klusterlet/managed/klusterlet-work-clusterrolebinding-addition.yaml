@@ -5,7 +5,7 @@ metadata:
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: open-cluster-management:{{ .KlusterletName }}-work:agent
+  name: open-cluster-management:{{ .KlusterletName }}-work:agent-addition
 subjects:
   - kind: ServiceAccount
     name: {{ .KlusterletName }}-work-sa

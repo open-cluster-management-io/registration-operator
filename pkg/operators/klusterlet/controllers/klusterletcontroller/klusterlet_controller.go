@@ -70,8 +70,10 @@ var (
 		"klusterlet/managed/klusterlet-registration-clusterrolebinding-addon-management.yaml",
 		"klusterlet/managed/klusterlet-work-serviceaccount.yaml",
 		"klusterlet/managed/klusterlet-work-clusterrole.yaml",
+		"klusterlet/managed/klusterlet-work-clusterrole-addition.yaml",
 		"klusterlet/managed/klusterlet-work-clusterrolebinding.yaml",
 		"klusterlet/managed/klusterlet-work-clusterrolebinding-addition.yaml",
+		"klusterlet/managed/klusterlet-work-clusterrolebinding-addition-admin.yaml",
 	}
 
 	managementStaticResourceFiles = []string{
