@@ -174,6 +174,8 @@ type klusterletConfig struct {
 	InstallMode                                 operatorapiv1.InstallMode
 
 	RegistrationFeatureGates []string
+
+	HubApiServerHostAlias *operatorapiv1.HubApiServerHostAlias
 }
 
 // managedClusterClients holds variety of kube client for managed cluster
@@ -217,6 +219,7 @@ func (n *klusterletController) sync(ctx context.Context, controllerContext facto
 		ExternalManagedKubeConfigRegistrationSecret: helpers.ExternalManagedKubeConfigRegistration,
 		ExternalManagedKubeConfigWorkSecret:         helpers.ExternalManagedKubeConfigWork,
 		InstallMode:                                 klusterlet.Spec.DeployOption.Mode,
+		HubApiServerHostAlias:                       klusterlet.Spec.HubApiServerHostAlias,
 	}
 
 	managedClusterClients := &managedClusterClients{
