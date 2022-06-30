@@ -331,6 +331,12 @@ func (n *klusterletController) sync(ctx context.Context, controllerContext facto
 		}
 	}
 
+	// Cleanup some resources before apply
+	err = n.cleanBeforeApply(ctx, &config)
+	if err != nil {
+		return err
+	}
+
 	var relatedResources []operatorapiv1.RelatedResourceMeta
 	// If kube version is less than 1.12, deploy static resource for kube 1.11 at first
 	// TODO remove this when we do not support kube 1.11 any longer
@@ -451,6 +457,35 @@ func (n *klusterletController) getClusterNameFromHubKubeConfigSecret(ctx context
 		return err
 	}
 	config.ClusterName = string(clusterName)
+	return nil
+}
+
+// cleanBeforeApply clean deleted resources and resources that may have conflict if apply new directly
+func (n *klusterletController) cleanBeforeApply(ctx context.Context, config *klusterletConfig) error {
+	// To upgrade from OCM v0.7.0 to v0.8.0, remove below resource before apply new.
+	clusterrolebindings := []string{
+		// Remove not used clusterrolebindings
+		fmt.Sprintf("open-cluster-management:%s-work:agent-addition", config.KlusterletName),
+		// Remove clusterrolebindings before apply it as it's RoleRef/Subjects changes
+		fmt.Sprintf("open-cluster-management:%s-work:agent", config.KlusterletName),
+	}
+	rolebindings := []string{
+		// Remove rolebindings before apply it as it's RoleRef/Subjects changes
+		fmt.Sprintf("open-cluster-management:management:%s-registration:agent", config.KlusterletName),
+		fmt.Sprintf("open-cluster-management:management:%s-work:agent", config.KlusterletName),
+	}
+	for _, crb := range clusterrolebindings {
+		err := n.kubeClient.RbacV1().ClusterRoleBindings().Delete(ctx, crb, metav1.DeleteOptions{})
+		if err != nil && !errors.IsNotFound(err) {
+			return err
+		}
+	}
+	for _, rb := range rolebindings {
+		err := n.kubeClient.RbacV1().RoleBindings("kube-system").Delete(ctx, rb, metav1.DeleteOptions{})
+		if err != nil && !errors.IsNotFound(err) {
+			return err
+		}
+	}
 	return nil
 }
 
