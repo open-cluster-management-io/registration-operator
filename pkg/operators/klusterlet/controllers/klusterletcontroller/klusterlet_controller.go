@@ -92,6 +92,26 @@ var (
 		"klusterletkube111/klusterlet-registration-operator-clusterrolebinding.yaml",
 		"klusterletkube111/klusterlet-work-clusterrolebinding.yaml",
 	}
+
+	// Resources need to clean when upgarde from OCM v0.7.0 to v0.8.0.
+	// TODO: remove these after OCM v0.8.0
+	// Remove deleted resources
+	deletedManagedResource = map[string][]string{
+		"ClusterRoleBindings": {
+			"open-cluster-management:%s-work:agent-addition",
+		},
+	}
+
+	// Clean clusterrolebindings/rolebindings before apply it as it's RoleRef/Subjects changes
+	cleanManagedStaticResourceFiles = []string{
+		"klusterlet/managed/klusterlet-work-clusterrolebinding.yaml",
+	}
+
+	// Clean clusterrolebindings/rolebindings before apply it as it's RoleRef/Subjects changes
+	cleanManagementStaticResourceFiles = []string{
+		"klusterlet/management/klusterlet-registration-rolebinding-extension-apiserver.yaml",
+		"klusterlet/management/klusterlet-work-rolebinding-extension-apiserver.yaml",
+	}
 )
 
 type klusterletController struct {
@@ -331,8 +351,10 @@ func (n *klusterletController) sync(ctx context.Context, controllerContext facto
 		}
 	}
 
-	// Cleanup some resources before apply
-	err = n.cleanBeforeApply(ctx, &config)
+	// Resources need to clean when upgarde from OCM v0.7.0 to v0.8.0.
+	// TODO: remove this after OCM v0.8.0
+	err = n.cleanBeforeApply(ctx, deletedManagedResource, cleanManagedStaticResourceFiles,
+		cleanManagementStaticResourceFiles, managedClusterClients, config)
 	if err != nil {
 		return err
 	}
@@ -461,29 +483,38 @@ func (n *klusterletController) getClusterNameFromHubKubeConfigSecret(ctx context
 }
 
 // cleanBeforeApply clean deleted resources and resources that may have conflict if apply new directly
-func (n *klusterletController) cleanBeforeApply(ctx context.Context, config *klusterletConfig) error {
-	// To upgrade from OCM v0.7.0 to v0.8.0, remove below resource before apply new.
-	clusterrolebindings := []string{
-		// Remove not used clusterrolebindings
-		fmt.Sprintf("open-cluster-management:%s-work:agent-addition", config.KlusterletName),
-		// Remove clusterrolebindings before apply it as it's RoleRef/Subjects changes
-		fmt.Sprintf("open-cluster-management:%s-work:agent", config.KlusterletName),
+func (n *klusterletController) cleanBeforeApply(ctx context.Context,
+	deletedManagedResource map[string][]string,
+	cleanManagedStaticResourceFiles []string,
+	cleanManagementStaticResourceFiles []string,
+	managedClients *managedClusterClients,
+	config klusterletConfig) error {
+	// remove static file on the managed cluster
+	err := n.removeStaticResources(ctx, managedClients.kubeClient, managedClients.apiExtensionClient,
+		cleanManagedStaticResourceFiles, config)
+	if err != nil {
+		return err
 	}
-	rolebindings := []string{
-		// Remove rolebindings before apply it as it's RoleRef/Subjects changes
-		fmt.Sprintf("open-cluster-management:management:%s-registration:agent", config.KlusterletName),
-		fmt.Sprintf("open-cluster-management:management:%s-work:agent", config.KlusterletName),
+
+	// remove static file on the management cluster
+	err = n.removeStaticResources(ctx, n.kubeClient, n.apiExtensionClient, cleanManagementStaticResourceFiles, config)
+	if err != nil {
+		return err
 	}
-	for _, crb := range clusterrolebindings {
-		err := n.kubeClient.RbacV1().ClusterRoleBindings().Delete(ctx, crb, metav1.DeleteOptions{})
-		if err != nil && !errors.IsNotFound(err) {
-			return err
-		}
-	}
-	for _, rb := range rolebindings {
-		err := n.kubeClient.RbacV1().RoleBindings("kube-system").Delete(ctx, rb, metav1.DeleteOptions{})
-		if err != nil && !errors.IsNotFound(err) {
-			return err
+
+	// remove deleted resources
+	for kind, names := range deletedManagedResource {
+		switch kind {
+		case "ClusterRoleBindings":
+			for _, name := range names {
+				crb := fmt.Sprintf(name, config.KlusterletName)
+				err := managedClients.kubeClient.RbacV1().ClusterRoleBindings().Delete(ctx, crb, metav1.DeleteOptions{})
+				if err != nil && !errors.IsNotFound(err) {
+					return err
+				}
+			}
+		default:
+			klog.Warningf("Failed to clean %s", kind)
 		}
 	}
 	return nil
