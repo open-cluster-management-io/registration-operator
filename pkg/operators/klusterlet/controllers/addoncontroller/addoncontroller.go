@@ -5,6 +5,8 @@ import (
 
 	"github.com/openshift/library-go/pkg/controller/factory"
 	"github.com/openshift/library-go/pkg/operator/events"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	coreinformer "k8s.io/client-go/informers/core/v1"
 	"k8s.io/client-go/kubernetes"
@@ -12,19 +14,20 @@ import (
 )
 
 const (
-	imagePullSecret = "open-cluster-management-image-pull-credentials"
+	imagePullSecret                 = "open-cluster-management-image-pull-credentials"
+	addonInstallNamespaceAnnotation = "addon.open-cluster-management.io/namespace"
 )
 
 // AddonController is used to sync pull image secret from operator namespace to addon namespaces(with annotation "addon.open-cluster-management.io/namespace":"true")
-type addoncontroller struct {
+type addoncPullImageSecretController struct {
 	operatorNamespace string
 	namespaceInformer coreinformer.NamespaceInformer
 	kubeClient        kubernetes.Interface
 	recorder          events.Recorder
 }
 
-func NewAddonController(operatorNamespace string, namespaceInformer coreinformer.NamespaceInformer, recorder events.Recorder) factory.Controller {
-	ac := &addoncontroller{
+func NewAddonPullImageSecretController(kubeClient kubernetes.Interface, operatorNamespace string, namespaceInformer coreinformer.NamespaceInformer, recorder events.Recorder) factory.Controller {
+	ac := &addoncPullImageSecretController{
 		operatorNamespace: operatorNamespace,
 		namespaceInformer: namespaceInformer,
 		kubeClient:        kubeClient,
@@ -32,14 +35,14 @@ func NewAddonController(operatorNamespace string, namespaceInformer coreinformer
 	}
 	return factory.New().WithInformersQueueKeyFunc(func(o runtime.Object) string {
 		namespace := o.(*corev1.Namespace)
-		if namespace.Annotations["addon.open-cluster-management.io/namespace"] != "true" {
+		if namespace.Annotations[addonInstallNamespaceAnnotation] != "true" {
 			return ""
 		}
 		return namespace.GetName()
-	}, namespaceInformer).WithSync(ac.sync).ToController("AddonController", &factory.ControllerOptions{})
+	}, namespaceInformer.Informer()).WithSync(ac.sync).ToController("AddonController", recorder)
 }
 
-func (c *addoncontroller) sync(ctx context.Context, controllerContext factory.SyncContext) error {
+func (c *addoncPullImageSecretController) sync(ctx context.Context, controllerContext factory.SyncContext) error {
 	// Sync secret if namespace is created
 	namespace := controllerContext.QueueKey()
 	if namespace == "" {
@@ -47,8 +50,8 @@ func (c *addoncontroller) sync(ctx context.Context, controllerContext factory.Sy
 	}
 	_, _, err := helpers.SyncSecret(
 		ctx,
-		c.kubeClient,
-		c.kubeClient,
+		c.kubeClient.CoreV1(),
+		c.kubeClient.CoreV1(),
 		c.recorder,
 		c.operatorNamespace,
 		imagePullSecret,

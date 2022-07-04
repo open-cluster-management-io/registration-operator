@@ -112,9 +112,10 @@ func (o *Options) RunKlusterletOperator(ctx context.Context, controllerContext *
 		controllerContext.EventRecorder,
 	)
 
-	addonController := addoncontroller.NewAddonController(
+	addonController := addoncontroller.NewAddonPullImageSecretController(
+		kubeClient,
 		operatorNamespace,
-		kubeInformer.Core().V1().Namespace(),
+		kubeInformer.Core().V1().Namespaces(),
 		controllerContext.EventRecorder,
 	)
 
