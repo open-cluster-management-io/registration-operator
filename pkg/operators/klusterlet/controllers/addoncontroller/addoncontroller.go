@@ -19,7 +19,7 @@ const (
 )
 
 // AddonController is used to sync pull image secret from operator namespace to addon namespaces(with annotation "addon.open-cluster-management.io/namespace":"true")
-type addoncPullImageSecretController struct {
+type addonPullImageSecretController struct {
 	operatorNamespace string
 	namespaceInformer coreinformer.NamespaceInformer
 	kubeClient        kubernetes.Interface
@@ -27,7 +27,7 @@ type addoncPullImageSecretController struct {
 }
 
 func NewAddonPullImageSecretController(kubeClient kubernetes.Interface, operatorNamespace string, namespaceInformer coreinformer.NamespaceInformer, recorder events.Recorder) factory.Controller {
-	ac := &addoncPullImageSecretController{
+	ac := &addonPullImageSecretController{
 		operatorNamespace: operatorNamespace,
 		namespaceInformer: namespaceInformer,
 		kubeClient:        kubeClient,
@@ -39,16 +39,28 @@ func NewAddonPullImageSecretController(kubeClient kubernetes.Interface, operator
 			return ""
 		}
 		return namespace.GetName()
-	}, namespaceInformer.Informer()).WithSync(ac.sync).ToController("AddonController", recorder)
+	}, namespaceInformer.Informer()).WithSync(ac.sync).ToController("AddonPullImageSecretController", recorder)
 }
 
-func (c *addoncPullImageSecretController) sync(ctx context.Context, controllerContext factory.SyncContext) error {
+func (c *addonPullImageSecretController) sync(ctx context.Context, controllerContext factory.SyncContext) error {
+	var err error
+
 	// Sync secret if namespace is created
 	namespace := controllerContext.QueueKey()
 	if namespace == "" {
 		return nil
 	}
-	_, _, err := helpers.SyncSecret(
+
+	// If namespace does't have addon annotation, return
+	ns, err := c.kubeClient.CoreV1().Namespaces().Get(ctx, namespace, metav1.GetOptions{})
+	if err != nil {
+		return err
+	}
+	if ns.Annotations[addonInstallNamespaceAnnotation] != "true" {
+		return nil
+	}
+
+	_, _, err = helpers.SyncSecret(
 		ctx,
 		c.kubeClient.CoreV1(),
 		c.kubeClient.CoreV1(),
