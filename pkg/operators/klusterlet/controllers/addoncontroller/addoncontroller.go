@@ -14,8 +14,8 @@ import (
 )
 
 const (
-	imagePullSecret                 = "open-cluster-management-image-pull-credentials"
-	addonInstallNamespaceAnnotation = "addon.open-cluster-management.io/namespace"
+	imagePullSecret                    = "open-cluster-management-image-pull-credentials"
+	addonInstallNamespaceAnnotationKey = "addon.open-cluster-management.io/namespace"
 )
 
 // AddonController is used to sync pull image secret from operator namespace to addon namespaces(with annotation "addon.open-cluster-management.io/namespace":"true")
@@ -35,7 +35,7 @@ func NewAddonPullImageSecretController(kubeClient kubernetes.Interface, operator
 	}
 	return factory.New().WithInformersQueueKeyFunc(func(o runtime.Object) string {
 		namespace := o.(*corev1.Namespace)
-		if namespace.Annotations[addonInstallNamespaceAnnotation] != "true" {
+		if namespace.Annotations[addonInstallNamespaceAnnotationKey] != "true" {
 			return ""
 		}
 		return namespace.GetName()
@@ -56,7 +56,7 @@ func (c *addonPullImageSecretController) sync(ctx context.Context, controllerCon
 	if err != nil {
 		return err
 	}
-	if ns.Annotations[addonInstallNamespaceAnnotation] != "true" {
+	if ns.Annotations[addonInstallNamespaceAnnotationKey] != "true" {
 		return nil
 	}
 

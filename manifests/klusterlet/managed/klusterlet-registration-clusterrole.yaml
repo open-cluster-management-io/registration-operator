@@ -1,16 +1,21 @@
-# Mandatory ClusterRole permission for registartion agent
+# Mandatory Role permission for registartion agent
 # Registartion agent can not run without these permissions
 apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
+kind: Role
 metadata:
-  name: open-cluster-management:{{ .KlusterletName }}-registration:agent
+  name: open-cluster-management:management:{{ .KlusterletName }}-registration:agent
+  namespace: {{ .AgentNamespace }}
 rules:
-# Allow agent to get/list/watch nodes
-# list nodes to calculates the capacity and allocatable resources of the managed cluster
+# leader election needs to operate configmaps, create hub-kubeconfig external-managed-registration/work secrets
+# TODO(zhujian7): may be replaced by a clusterrole to grant secret operation for others namespaces when addon
+# agents are supported running on the management cluster
 - apiGroups: [""]
-  resources: ["nodes"]
-  verbs: ["get", "list", "watch"]
-# Allow agent to list clusterclaims
-- apiGroups: ["cluster.open-cluster-management.io"]
-  resources: ["clusterclaims"]
-  verbs: ["get", "list", "watch"]
+  resources: ["secrets"]
+  verbs: ["get", "list", "watch", "create", "delete", "update", "patch"]
+- apiGroups: ["", "events.k8s.io"]
+  resources: ["events"]
+  verbs: ["create", "patch", "update"]
+# Allow agent to create namespaces for addons
+- apiGroups: [""]
+  resources: ["namespaces"]
+  verbs: ["get", "list", "watch", "create"]
