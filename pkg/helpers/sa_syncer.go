@@ -111,7 +111,7 @@ func tokenValid(secret *corev1.Secret) bool {
 	return true
 }
 
-// RenderToKubeconfigSecret would render saToken to a secret.
+// applyKubeconfigSecret would render saToken to a secret.
 func applyKubeconfigSecret(ctx context.Context, templateKubeconfig *rest.Config, secretName, secretNamespace string, secretClient coreclientv1.SecretsGetter, tokenGetter TokenGetterFunc, recorder events.Recorder) error {
 
 	token, expiration, err := tokenGetter()
