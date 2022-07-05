@@ -1,4 +1,4 @@
-# Adddition ClusterRole permission for registartion agent 
+# Adddition ClusterRole permission for registartion agent
 # Registartion agent needs these permission to manage addons
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -14,3 +14,8 @@ rules:
 - apiGroups: ["coordination.k8s.io"]
   resources: ["leases"]
   verbs: ["create", "get", "list", "update", "watch", "patch"]
+# Allow agent to create namespaces for addons
+# TODO: this clusterrole will bind to a rolebinding in the addon namespace, after that this may not work
+- apiGroups: [""]
+  resources: ["namespaces"]
+  verbs: ["get", "list", "watch", "create"]
