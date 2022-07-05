@@ -14,8 +14,4 @@ rules:
 - apiGroups: ["coordination.k8s.io"]
   resources: ["leases"]
   verbs: ["create", "get", "list", "update", "watch", "patch"]
-# Allow agent to create namespaces for addons
-# TODO: this clusterrole will bind to a rolebinding in the addon namespace, after that this may not work
-- apiGroups: [""]
-  resources: ["namespaces"]
-  verbs: ["get", "list", "watch", "create"]
+
