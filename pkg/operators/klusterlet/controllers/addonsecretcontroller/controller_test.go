@@ -64,7 +64,7 @@ func TestSync(t *testing.T) {
 				&corev1.Namespace{
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "ns1",
-						Annotations: map[string]string{
+						Labels: map[string]string{
 							"addon.open-cluster-management.io/namespace": "true"},
 					},
 				},

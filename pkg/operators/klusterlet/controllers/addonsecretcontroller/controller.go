@@ -14,11 +14,14 @@ import (
 )
 
 const (
-	imagePullSecret                    = "open-cluster-management-image-pull-credentials"
-	addonInstallNamespaceAnnotationKey = "addon.open-cluster-management.io/namespace"
+	imagePullSecret               = "open-cluster-management-image-pull-credentials"
+	addonInstallNamespaceLabelKey = "addon.open-cluster-management.io/namespace"
 )
 
-// AddonController is used to sync pull image secret from operator namespace to addon namespaces(with annotation "addon.open-cluster-management.io/namespace":"true")
+// AddonPullImageSecretController is used to sync pull image secret from operator namespace to addon namespaces(with label "addon.open-cluster-management.io/namespace":"true")
+// Note:
+// 1. AddonPullImageSecretController only handles namespace events within the same cluster.
+// 2. If the lable is remove from namespace, controller now would not remove the secret.
 type addonPullImageSecretController struct {
 	operatorNamespace string
 	namespaceInformer coreinformer.NamespaceInformer
@@ -33,12 +36,16 @@ func NewAddonPullImageSecretController(kubeClient kubernetes.Interface, operator
 		kubeClient:        kubeClient,
 		recorder:          recorder,
 	}
-	return factory.New().WithInformersQueueKeyFunc(func(o runtime.Object) string {
+	return factory.New().WithFilteredEventsInformersQueueKeyFunc(func(o runtime.Object) string {
 		namespace := o.(*corev1.Namespace)
-		if namespace.Annotations[addonInstallNamespaceAnnotationKey] != "true" {
-			return ""
-		}
 		return namespace.GetName()
+	}, func(obj interface{}) bool {
+		// if obj has the label, return true
+		namespace := obj.(*corev1.Namespace)
+		if namespace.Labels[addonInstallNamespaceLabelKey] == "true" {
+			return true
+		}
+		return false
 	}, namespaceInformer.Informer()).WithSync(ac.sync).ToController("AddonPullImageSecretController", recorder)
 }
 
@@ -51,12 +58,12 @@ func (c *addonPullImageSecretController) sync(ctx context.Context, controllerCon
 		return nil
 	}
 
-	// If namespace does't have addon annotation, return
+	// If namespace does't have addon label, do nothing
 	ns, err := c.kubeClient.CoreV1().Namespaces().Get(ctx, namespace, metav1.GetOptions{})
 	if err != nil {
 		return err
 	}
-	if ns.Annotations[addonInstallNamespaceAnnotationKey] != "true" {
+	if ns.Labels[addonInstallNamespaceLabelKey] != "true" {
 		return nil
 	}
 
