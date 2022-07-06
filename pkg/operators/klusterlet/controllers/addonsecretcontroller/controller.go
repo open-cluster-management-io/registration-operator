@@ -1,4 +1,4 @@
-package addoncontroller
+package addonsecretcontroller
 
 import (
 	"context"
