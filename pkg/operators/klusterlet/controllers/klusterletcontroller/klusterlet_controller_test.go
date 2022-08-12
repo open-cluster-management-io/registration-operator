@@ -69,6 +69,18 @@ func newServiceAccountSecret(name, namespace string) *corev1.Secret {
 	return secret
 }
 
+func removeKlusterletFinalizer(k *operatorapiv1.Klusterlet, f string) *operatorapiv1.Klusterlet {
+	finalizers := make([]string, 0)
+	for _, finalizer := range k.Finalizers {
+		if finalizer == f {
+			continue
+		}
+		finalizers = append(finalizers, finalizer)
+	}
+	k.SetFinalizers(finalizers)
+	return k
+}
+
 func newKlusterlet(name, namespace, clustername string) *operatorapiv1.Klusterlet {
 	return &operatorapiv1.Klusterlet{
 		ObjectMeta: metav1.ObjectMeta{
@@ -100,6 +112,7 @@ func newKlusterlet(name, namespace, clustername string) *operatorapiv1.Klusterle
 func newKlusterletHosted(name, namespace, clustername string) *operatorapiv1.Klusterlet {
 	klusterlet := newKlusterlet(name, namespace, clustername)
 	klusterlet.Spec.DeployOption.Mode = operatorapiv1.InstallModeHosted
+	klusterlet.Finalizers = append(klusterlet.Finalizers, klusterletHostedFinalizer)
 	return klusterlet
 }
 
@@ -239,7 +252,11 @@ func newTestControllerHosted(t *testing.T, klusterlet *operatorapiv1.Klusterlet,
 		kubeVersion:               kubeVersion,
 		operatorNamespace:         "open-cluster-management",
 		cache:                     resourceapply.NewResourceCache(),
-		buildManagedClusterClientsHostedMode: func(ctx context.Context, kubeClient kubernetes.Interface, namespace, secret string) (*managedClusterClients, error) {
+		buildManagedClusterClientsHostedMode: func(
+			ctx context.Context,
+			kubeClient kubernetes.Interface,
+			namespace,
+			secret string) (*managedClusterClients, error) {
 			return &managedClusterClients{
 				kubeClient:                fakeManagedKubeClient,
 				apiExtensionClient:        fakeManagedAPIExtensionClient,
@@ -271,6 +288,13 @@ func newTestControllerHosted(t *testing.T, klusterlet *operatorapiv1.Klusterlet,
 		managedApiExtensionClient: fakeManagedAPIExtensionClient,
 		managedWorkClient:         fakeManagedWorkClient,
 	}
+}
+
+func (c *testController) setBuildManagedClusterClientsHostedModeFunc(
+	f func(ctx context.Context, kubeClient kubernetes.Interface, namespace, secret string) (
+		*managedClusterClients, error)) *testController {
+	c.controller.buildManagedClusterClientsHostedMode = f
+	return c
 }
 
 func getDeployments(actions []clienttesting.Action, verb, suffix string) *appsv1.Deployment {
@@ -473,6 +497,10 @@ func TestSyncDeploy(t *testing.T) {
 // TestSyncDeployHosted test deployment of klusterlet components in hosted mode
 func TestSyncDeployHosted(t *testing.T) {
 	klusterlet := newKlusterletHosted("klusterlet", "testns", "cluster1")
+	meta.SetStatusCondition(&klusterlet.Status.Conditions, metav1.Condition{
+		Type: klusterletReadyToApply, Status: metav1.ConditionTrue, Reason: "KlusterletPrepared",
+		Message: "Klusterlet is ready to apply",
+	})
 	agentNamespace := helpers.AgentNamespace(klusterlet)
 	bootStrapSecret := newSecret(helpers.BootstrapHubKubeConfig, agentNamespace)
 	hubKubeConfigSecret := newSecret(helpers.HubKubeConfig, agentNamespace)
@@ -481,6 +509,7 @@ func TestSyncDeployHosted(t *testing.T) {
 	// externalManagedSecret.Data["kubeconfig"] = []byte("dummuykubeconnfig")
 	namespace := newNamespace(agentNamespace)
 	pullSecret := newSecret(imagePullSecret, "open-cluster-management")
+
 	controller := newTestControllerHosted(t, klusterlet, nil, bootStrapSecret, hubKubeConfigSecret, namespace, pullSecret /*externalManagedSecret*/)
 	syncContext := testinghelper.NewFakeSyncContext(t, "klusterlet")
 
@@ -553,24 +582,130 @@ func TestSyncDeployHosted(t *testing.T) {
 		klog.Infof("operator actions, verb:%v \t resource:%v \t namespace:%v", action.GetVerb(), action.GetResource(), action.GetNamespace())
 	}
 
-	if len(operatorAction) != 6 {
-		t.Errorf("Expect 6 actions in the sync loop, actual %#v", len(operatorAction))
+	if len(operatorAction) != 5 {
+		t.Errorf("Expect 5 actions in the sync loop, actual %#v", len(operatorAction))
 	}
 
 	testinghelper.AssertGet(t, operatorAction[0], "operator.open-cluster-management.io", "v1", "klusterlets")
 	testinghelper.AssertAction(t, operatorAction[1], "update")
 	testinghelper.AssertGet(t, operatorAction[2], "operator.open-cluster-management.io", "v1", "klusterlets")
-	testinghelper.AssertAction(t, operatorAction[3], "update")
-	testinghelper.AssertGet(t, operatorAction[4], "operator.open-cluster-management.io", "v1", "klusterlets")
-	testinghelper.AssertAction(t, operatorAction[5], "update")
+	// testinghelper.AssertAction(t, operatorAction[3], "update")
+	testinghelper.AssertGet(t, operatorAction[3], "operator.open-cluster-management.io", "v1", "klusterlets")
+	testinghelper.AssertAction(t, operatorAction[4], "update")
 
 	conditionReady := testinghelper.NamedCondition(klusterletReadyToApply, "KlusterletPrepared", metav1.ConditionTrue)
 	conditionApplied := testinghelper.NamedCondition(klusterletApplied, "KlusterletApplied", metav1.ConditionTrue)
 	conditionFeaturesValid := testinghelper.NamedCondition(spokeRegistrationFeatureGatesInvalid, "FeatureGatesAllValid", metav1.ConditionTrue)
 	testinghelper.AssertOnlyConditions(
-		t, operatorAction[3].(clienttesting.UpdateActionImpl).Object, conditionReady, conditionFeaturesValid)
+		t, operatorAction[1].(clienttesting.UpdateActionImpl).Object, conditionReady, conditionFeaturesValid)
 	testinghelper.AssertOnlyConditions(
-		t, operatorAction[5].(clienttesting.UpdateActionImpl).Object, conditionReady, conditionApplied, conditionFeaturesValid)
+		t, operatorAction[4].(clienttesting.UpdateActionImpl).Object, conditionReady, conditionApplied, conditionFeaturesValid)
+}
+
+func TestSyncDeployHostedCreateAgentNamespace(t *testing.T) {
+	klusterlet := newKlusterletHosted("klusterlet", "testns", "cluster1")
+	controller := newTestControllerHosted(t, klusterlet, nil).
+		setBuildManagedClusterClientsHostedModeFunc(buildManagedClusterClientsFromSecret)
+	syncContext := testinghelper.NewFakeSyncContext(t, "klusterlet")
+
+	err := controller.controller.sync(context.TODO(), syncContext)
+	if err != nil {
+		t.Errorf("Expected non error when sync, %v", err)
+	}
+
+	kubeActions := controller.kubeClient.Actions()
+	testinghelper.AssertGet(t, kubeActions[0], "", "v1", "namespaces")
+	testinghelper.AssertAction(t, kubeActions[1], "create")
+	if kubeActions[1].GetResource().Resource != "namespaces" {
+		t.Errorf("expect object namespaces, but got %v", kubeActions[2].GetResource().Resource)
+	}
+}
+
+func TestSyncAddHostedFinalizerWhenKubeconfigReady(t *testing.T) {
+	klusterlet := removeKlusterletFinalizer(
+		newKlusterletHosted("klusterlet", "testns", "cluster1"),
+		klusterletHostedFinalizer)
+
+	c := newTestControllerHosted(t, klusterlet, nil)
+	syncContext := testinghelper.NewFakeSyncContext(t, "klusterlet")
+
+	err := c.controller.sync(context.TODO(), syncContext)
+	if err != nil {
+		t.Errorf("Expected non error when sync, %v", err)
+	}
+
+	klusterlet, err = c.controller.klusterletClient.Get(context.TODO(), klusterlet.Name, metav1.GetOptions{})
+	if err != nil {
+		t.Errorf("Expected non error when get klusterlet, %v", err)
+	}
+	if hasFinalizer(klusterlet, klusterletHostedFinalizer) {
+		t.Errorf("Expected no klusterlet hosted finalizer")
+	}
+
+	meta.SetStatusCondition(&klusterlet.Status.Conditions, metav1.Condition{
+		Type: klusterletReadyToApply, Status: metav1.ConditionTrue, Reason: "KlusterletPrepared",
+		Message: "Klusterlet is ready to apply",
+	})
+	if err := c.operatorStore.Update(klusterlet); err != nil {
+		t.Fatal(err)
+	}
+	err = c.controller.sync(context.TODO(), syncContext)
+	if err != nil {
+		t.Errorf("Expected non error when sync, %v", err)
+	}
+
+	klusterlet, err = c.controller.klusterletClient.Get(context.TODO(), klusterlet.Name, metav1.GetOptions{})
+	if err != nil {
+		t.Errorf("Expected non error when get klusterlet, %v", err)
+	}
+	if !hasFinalizer(klusterlet, klusterletHostedFinalizer) {
+		t.Errorf("Expected there is klusterlet hosted finalizer")
+	}
+}
+
+func TestSyncDeleteHostedDeleteAgentNamespace(t *testing.T) {
+	klusterlet := removeKlusterletFinalizer(
+		newKlusterletHosted("klusterlet", "testns", "cluster1"),
+		klusterletHostedFinalizer)
+	meta.SetStatusCondition(&klusterlet.Status.Conditions, metav1.Condition{
+		Type: klusterletReadyToApply, Status: metav1.ConditionFalse, Reason: "KlusterletPrepareFailed",
+		Message: fmt.Sprintf("Failed to build managed cluster clients: %v", "namespaces \"klusterlet\" not found"),
+	})
+	now := metav1.Now()
+	klusterlet.ObjectMeta.SetDeletionTimestamp(&now)
+	controller := newTestControllerHosted(t, klusterlet, nil).
+		setBuildManagedClusterClientsHostedModeFunc(buildManagedClusterClientsFromSecret)
+	syncContext := testinghelper.NewFakeSyncContext(t, "klusterlet")
+
+	err := controller.controller.sync(context.TODO(), syncContext)
+	if err != nil {
+		t.Errorf("Expected non error when sync, %v", err)
+	}
+
+	kubeActions := controller.kubeClient.Actions()
+	// assert there last action is deleting the klusterlet agent namespace on the management cluster
+	testinghelper.AssertDelete(t, kubeActions[len(kubeActions)-1], "namespaces", "", "klusterlet")
+}
+
+func TestSyncDeleteHostedDeleteWaitKubeconfig(t *testing.T) {
+	klusterlet := newKlusterletHosted("klusterlet", "testns", "cluster1")
+	now := metav1.Now()
+	klusterlet.ObjectMeta.SetDeletionTimestamp(&now)
+	controller := newTestControllerHosted(t, klusterlet, nil).
+		setBuildManagedClusterClientsHostedModeFunc(buildManagedClusterClientsFromSecret)
+	syncContext := testinghelper.NewFakeSyncContext(t, "klusterlet")
+
+	err := controller.controller.sync(context.TODO(), syncContext)
+	if err != nil {
+		t.Errorf("Expected non error when sync, %v", err)
+	}
+
+	// assert no delete action on the management cluster,should wait for the kubeconfig
+	for _, action := range controller.kubeClient.Actions() {
+		if action.GetVerb() == "delete" {
+			t.Errorf("Expected not delete the resources, should wait for the kubeconfig, but got delete actions")
+		}
+	}
 }
 
 // TestSyncDelete test cleanup hub deploy
@@ -627,6 +762,10 @@ func TestSyncDelete(t *testing.T) {
 
 func TestSyncDeleteHosted(t *testing.T) {
 	klusterlet := newKlusterletHosted("klusterlet", "testns", "cluster1")
+	meta.SetStatusCondition(&klusterlet.Status.Conditions, metav1.Condition{
+		Type: klusterletReadyToApply, Status: metav1.ConditionTrue, Reason: "KlusterletPrepared",
+		Message: "Klusterlet is ready to apply",
+	})
 	now := metav1.Now()
 	klusterlet.ObjectMeta.SetDeletionTimestamp(&now)
 	agentNamespace := helpers.AgentNamespace(klusterlet)
