@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"reflect"
 	"strings"
 	"time"
 
@@ -54,6 +55,14 @@ var (
 		"cluster-manager/hub/0000_02_addon.open-cluster-management.io_addondeploymentconfigs.crd.yaml",
 		"cluster-manager/hub/0000_03_clusters.open-cluster-management.io_placementdecisions.crd.yaml",
 		"cluster-manager/hub/0000_05_clusters.open-cluster-management.io_addonplacementscores.crd.yaml",
+	}
+
+	// removed CRD StoredVersions
+	removedCRDStoredVersions = map[string]string{
+		"placements.cluster.open-cluster-management.io":                "v1alpha1",
+		"placementdecisions.cluster.open-cluster-management.io":        "v1alpha1",
+		"managedclustersets.cluster.open-cluster-management.io":        "v1alpha1",
+		"managedclustersetbindings.cluster.open-cluster-management.io": "v1alpha1",
 	}
 
 	// The hubWebhookResourceFiles should be deployed in the hub cluster
@@ -323,6 +332,11 @@ func (n *clusterManagerController) sync(ctx context.Context, controllerContext f
 
 	var relatedResources []operatorapiv1.RelatedResourceMeta
 
+	// update CRD StoredVersion
+	if err := updateStoredVersion(ctx, hubApiExtensionClient); err != nil {
+		return err
+	}
+
 	// Apply resources on the hub cluster
 	hubAppliedErrs, err := applyHubResources(
 		ctx,
@@ -551,6 +565,42 @@ func applyManagementResources(
 	}
 
 	return currentGenerations, appliedErrs, nil
+}
+
+// updateStoredVersion update(remove) deleted api version from CRD status.StoredVersions
+func updateStoredVersion(ctx context.Context, apiExtensionClient apiextensionsclient.Interface) error {
+	for name, version := range removedCRDStoredVersions {
+		// retrieve CRD
+		crd, err := apiExtensionClient.ApiextensionsV1().CustomResourceDefinitions().Get(ctx, name, metav1.GetOptions{})
+		if errors.IsNotFound(err) {
+			continue
+		}
+		if err != nil {
+			klog.Warningf("faield to get CRD %v: %v", crd.Name, err)
+			continue
+		}
+
+		// remove v1alpha1 from its status
+		oldStoredVersions := crd.Status.StoredVersions
+		newStoredVersions := make([]string, 0, len(oldStoredVersions))
+		for _, stored := range oldStoredVersions {
+			if stored != version {
+				newStoredVersions = append(newStoredVersions, stored)
+			}
+		}
+
+		if !reflect.DeepEqual(oldStoredVersions, newStoredVersions) {
+			crd.Status.StoredVersions = newStoredVersions
+			// update the status sub-resource
+			crd, err = apiExtensionClient.ApiextensionsV1().CustomResourceDefinitions().UpdateStatus(ctx, crd, metav1.UpdateOptions{})
+			if err != nil {
+				return err
+			}
+			klog.V(4).Infof("updated CRD %v status storedVersions: %v", crd.Name, crd.Status.StoredVersions)
+		}
+	}
+
+	return nil
 }
 
 func removeClusterManagerFinalizer(ctx context.Context, clusterManagerClient operatorv1client.ClusterManagerInterface, deploy *operatorapiv1.ClusterManager) error {

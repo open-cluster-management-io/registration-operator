@@ -38,12 +38,12 @@ var (
 
 	_ = migrationv1alpha1.AddToScheme(genericScheme)
 
-	migrationRequestFiles = []string{
-		"cluster-manager/cluster-manager-managedclustersets-migration.yaml",
-		"cluster-manager/cluster-manager-managedclustersetbindings-migration.yaml",
-		"cluster-manager/cluster-manager-placements-migration.yaml",
-		"cluster-manager/cluster-manager-placementdecisions-migration.yaml",
-	}
+	// Fill in this slice with StorageVersionMigration CRs.
+	// For example:
+	// migrationRequestFiles = []string{
+	//		"cluster-manager/cluster-manager-managedclustersets-migration.yaml",
+	// }
+	migrationRequestFiles = []string{}
 )
 
 const (
@@ -80,6 +80,10 @@ func NewCRDMigrationController(
 func (c *crdMigrationController) sync(ctx context.Context, controllerContext factory.SyncContext) error {
 	clusterManagerName := controllerContext.QueueKey()
 	klog.V(4).Infof("Reconciling ClusterManager %q", clusterManagerName)
+
+	if len(migrationRequestFiles) == 0 {
+		return nil
+	}
 
 	clusterManager, err := c.clusterManagerLister.Get(clusterManagerName)
 	if errors.IsNotFound(err) {
