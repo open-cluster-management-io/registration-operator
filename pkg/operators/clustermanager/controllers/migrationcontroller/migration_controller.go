@@ -21,6 +21,7 @@ import (
 	"github.com/openshift/library-go/pkg/operator/resource/resourcehelper"
 	"github.com/openshift/library-go/pkg/operator/resource/resourcemerge"
 	operatorhelpers "github.com/openshift/library-go/pkg/operator/v1helpers"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	operatorinformer "open-cluster-management.io/api/client/operator/informers/externalversions/operator/v1"
@@ -267,4 +268,26 @@ func applyStorageVersionMigration(
 	}
 	recorder.Eventf("StorageVersionMigrationUpdated", "Updated %s because it changed", resourcehelper.FormatResourceForCLIWithNamespace(actual))
 	return actual, true, nil
+}
+
+func IsStorageVersionMigrationSucceeded(client migrationv1alpha1client.StorageVersionMigrationsGetter, name string) (bool, error) {
+	svmcr, err := client.StorageVersionMigrations().Get(context.TODO(), name, metav1.GetOptions{})
+	if err != nil {
+		return false, err
+	}
+
+	for _, c := range svmcr.Status.Conditions {
+		switch c.Type {
+		case migrationv1alpha1.MigrationSucceeded:
+			if c.Status == corev1.ConditionTrue {
+				return true, nil
+			}
+		case migrationv1alpha1.MigrationFailed:
+			if c.Status == corev1.ConditionTrue {
+				return false, nil
+			}
+		}
+	}
+
+	return false, nil
 }
