@@ -12,7 +12,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/version"
-	"k8s.io/client-go/dynamic"
 	appsinformer "k8s.io/client-go/informers/apps/v1"
 	coreinformer "k8s.io/client-go/informers/core/v1"
 	"k8s.io/client-go/kubernetes"
@@ -49,7 +48,6 @@ type klusterletController struct {
 	klusterletLister          operatorlister.KlusterletLister
 	kubeClient                kubernetes.Interface
 	apiExtensionClient        apiextensionsclient.Interface
-	dynamicClient             dynamic.Interface
 	appliedManifestWorkClient workv1client.AppliedManifestWorkInterface
 	kubeVersion               *version.Version
 	operatorNamespace         string
@@ -79,7 +77,6 @@ const (
 func NewKlusterletController(
 	kubeClient kubernetes.Interface,
 	apiExtensionClient apiextensionsclient.Interface,
-	dynamicClient dynamic.Interface,
 	klusterletClient operatorv1client.KlusterletInterface,
 	klusterletInformer operatorinformer.KlusterletInformer,
 	secretInformer coreinformer.SecretInformer,
@@ -92,7 +89,6 @@ func NewKlusterletController(
 	controller := &klusterletController{
 		kubeClient:                           kubeClient,
 		apiExtensionClient:                   apiExtensionClient,
-		dynamicClient:                        dynamicClient,
 		klusterletClient:                     klusterletClient,
 		klusterletLister:                     klusterletInformer.Lister(),
 		appliedManifestWorkClient:            appliedManifestWorkClient,
@@ -154,7 +150,6 @@ type managedClusterClients struct {
 	kubeClient                kubernetes.Interface
 	apiExtensionClient        apiextensionsclient.Interface
 	appliedManifestWorkClient workv1client.AppliedManifestWorkInterface
-	dynamicClient             dynamic.Interface
 	// Only used for Hosted mode to generate managed cluster kubeconfig
 	// with minimum permission for registration and work.
 	kubeconfig *rest.Config
@@ -197,7 +192,6 @@ func (n *klusterletController) sync(ctx context.Context, controllerContext facto
 	managedClusterClients := &managedClusterClients{
 		kubeClient:                n.kubeClient,
 		apiExtensionClient:        n.apiExtensionClient,
-		dynamicClient:             n.dynamicClient,
 		appliedManifestWorkClient: n.appliedManifestWorkClient,
 	}
 
@@ -365,10 +359,6 @@ func buildManagedClusterClientsFromSecret(ctx context.Context, client kubernetes
 	if err != nil {
 		return nil, err
 	}
-	dynamicClient, err := dynamic.NewForConfig(managedKubeConfig)
-	if err != nil {
-		return nil, err
-	}
 
 	workClient, err := workclientset.NewForConfig(managedKubeConfig)
 	if err != nil {
@@ -379,7 +369,6 @@ func buildManagedClusterClientsFromSecret(ctx context.Context, client kubernetes
 		kubeClient:                kubeClient,
 		apiExtensionClient:        apiExtensionClient,
 		appliedManifestWorkClient: workClient.WorkV1().AppliedManifestWorks(),
-		dynamicClient:             dynamicClient,
 		kubeconfig:                managedKubeConfig}, nil
 }
 

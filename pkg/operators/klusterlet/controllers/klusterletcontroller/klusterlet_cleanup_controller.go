@@ -15,7 +15,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/version"
-	"k8s.io/client-go/dynamic"
 	appsinformer "k8s.io/client-go/informers/apps/v1"
 	coreinformer "k8s.io/client-go/informers/core/v1"
 	"k8s.io/client-go/kubernetes"
@@ -38,7 +37,6 @@ type klusterletCleanupController struct {
 	klusterletLister          operatorlister.KlusterletLister
 	kubeClient                kubernetes.Interface
 	apiExtensionClient        apiextensionsclient.Interface
-	dynamicClient             dynamic.Interface
 	appliedManifestWorkClient workv1client.AppliedManifestWorkInterface
 	kubeVersion               *version.Version
 	operatorNamespace         string
@@ -55,7 +53,6 @@ type klusterletCleanupController struct {
 func NewKlusterletCleanupController(
 	kubeClient kubernetes.Interface,
 	apiExtensionClient apiextensionsclient.Interface,
-	dynamicClient dynamic.Interface,
 	klusterletClient operatorv1client.KlusterletInterface,
 	klusterletInformer operatorinformer.KlusterletInformer,
 	secretInformer coreinformer.SecretInformer,
@@ -67,7 +64,6 @@ func NewKlusterletCleanupController(
 	controller := &klusterletCleanupController{
 		kubeClient:                           kubeClient,
 		apiExtensionClient:                   apiExtensionClient,
-		dynamicClient:                        dynamicClient,
 		klusterletClient:                     klusterletClient,
 		klusterletLister:                     klusterletInformer.Lister(),
 		appliedManifestWorkClient:            appliedManifestWorkClient,
@@ -146,7 +142,6 @@ func (n *klusterletCleanupController) sync(ctx context.Context, controllerContex
 	managedClusterClients := &managedClusterClients{
 		kubeClient:                n.kubeClient,
 		apiExtensionClient:        n.apiExtensionClient,
-		dynamicClient:             n.dynamicClient,
 		appliedManifestWorkClient: n.appliedManifestWorkClient,
 	}
 	if installMode == operatorapiv1.InstallModeHosted && !skip {
