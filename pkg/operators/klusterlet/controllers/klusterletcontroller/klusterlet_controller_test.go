@@ -580,6 +580,29 @@ func TestSyncDeployHosted(t *testing.T) {
 		ensureObject(t, object, klusterlet)
 	}
 
+	ns, err := controller.kubeClient.CoreV1().Namespaces().Get(context.Background(), agentNamespace, metav1.GetOptions{})
+	if err != nil {
+		t.Errorf("Unexpected err: %v", err)
+	}
+
+	found := false
+	for _, ownerReference := range ns.OwnerReferences {
+		if ownerReference.APIVersion != operatorapiv1.GroupVersion.WithKind("Klusterlet").GroupVersion().String() {
+			continue
+		}
+		if ownerReference.Kind != operatorapiv1.GroupVersion.WithKind("Klusterlet").Kind {
+			continue
+		}
+		if ownerReference.Name != klusterlet.Name {
+			continue
+		}
+		found = true
+		break
+	}
+	if !found {
+		t.Errorf("Expect klusterlet is one of owner references of klusterlet agent namespace")
+	}
+
 	apiExtenstionAction := controller.apiExtensionClient.Actions()
 	createCRDObjects := []runtime.Object{}
 	for _, action := range apiExtenstionAction {

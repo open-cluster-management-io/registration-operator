@@ -24,6 +24,7 @@ import (
 	"github.com/openshift/library-go/pkg/controller/factory"
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/resource/resourceapply"
+	"github.com/openshift/library-go/pkg/operator/resource/resourcemerge"
 	operatorhelpers "github.com/openshift/library-go/pkg/operator/v1helpers"
 
 	operatorv1client "open-cluster-management.io/api/client/operator/clientset/versioned/typed/operator/v1"
@@ -307,7 +308,19 @@ func (n *klusterletController) sync(ctx context.Context, controllerContext facto
 
 	// Start deploy klusterlet components
 	// Ensure the agent namespace
-	err = n.ensureNamespace(ctx, n.kubeClient, klusterletName, config.AgentNamespace)
+	owners := []metav1.OwnerReference{}
+	if config.InstallMode == operatorapiv1.InstallModeHosted {
+		owners = []metav1.OwnerReference{
+			{
+				APIVersion: operatorapiv1.GroupVersion.WithKind("Klusterlet").GroupVersion().String(),
+				Kind:       operatorapiv1.GroupVersion.WithKind("Klusterlet").Kind,
+				Name:       klusterlet.Name,
+				UID:        klusterlet.UID,
+			},
+		}
+	}
+
+	err = n.ensureNamespace(ctx, n.kubeClient, klusterletName, config.AgentNamespace, owners)
 	if err != nil {
 		return err
 	}
@@ -321,7 +334,7 @@ func (n *klusterletController) sync(ctx context.Context, controllerContext facto
 	// TODO(zhujian7): In the future, we may consider deploy addons on the management cluster in Hosted mode.
 	addonNamespace := fmt.Sprintf("%s-addon", config.KlusterletNamespace)
 	// Ensure the addon namespace on the managed cluster
-	err = n.ensureNamespace(ctx, managedClusterClients.kubeClient, klusterletName, addonNamespace)
+	err = n.ensureNamespace(ctx, managedClusterClients.kubeClient, klusterletName, addonNamespace, nil)
 	if err != nil {
 		return err
 	}
@@ -337,7 +350,7 @@ func (n *klusterletController) sync(ctx context.Context, controllerContext facto
 	if config.InstallMode == operatorapiv1.InstallModeHosted {
 		// In hosted mode, we should ensure the namespace on the managed cluster since
 		// some resources(eg:service account) are still deployed on managed cluster.
-		err := n.ensureNamespace(ctx, managedClusterClients.kubeClient, klusterletName, config.KlusterletNamespace)
+		err := n.ensureNamespace(ctx, managedClusterClients.kubeClient, klusterletName, config.KlusterletNamespace, nil)
 		if err != nil {
 			return err
 		}
@@ -608,8 +621,8 @@ func (n *klusterletController) syncPullSecret(ctx context.Context, sourceClient,
 	return nil
 }
 
-func (n *klusterletController) ensureNamespace(ctx context.Context, kubeClient kubernetes.Interface, klusterletName, namespace string) error {
-	_, err := kubeClient.CoreV1().Namespaces().Get(ctx, namespace, metav1.GetOptions{})
+func (n *klusterletController) ensureNamespace(ctx context.Context, kubeClient kubernetes.Interface, klusterletName, namespace string, ownerReferences []metav1.OwnerReference) error {
+	ns, err := kubeClient.CoreV1().Namespaces().Get(ctx, namespace, metav1.GetOptions{})
 	switch {
 	case errors.IsNotFound(err):
 		_, createErr := kubeClient.CoreV1().Namespaces().Create(ctx, &corev1.Namespace{
@@ -618,6 +631,7 @@ func (n *klusterletController) ensureNamespace(ctx context.Context, kubeClient k
 				Annotations: map[string]string{
 					"workload.openshift.io/allowed": "management",
 				},
+				OwnerReferences: ownerReferences,
 			},
 		}, metav1.CreateOptions{})
 		if createErr != nil {
@@ -627,11 +641,23 @@ func (n *klusterletController) ensureNamespace(ctx context.Context, kubeClient k
 			}))
 			return createErr
 		}
+
 	case err != nil:
 		_, _, _ = helpers.UpdateKlusterletStatus(ctx, n.klusterletClient, klusterletName, helpers.UpdateKlusterletConditionFn(metav1.Condition{
 			Type: klusterletApplied, Status: metav1.ConditionFalse, Reason: "KlusterletApplyFailed",
 			Message: fmt.Sprintf("Failed to get namespace %q: %v", namespace, err),
 		}))
+		return err
+	case len(ownerReferences) > 0:
+		// ensure the namespace has the required owner references
+		nsCopy := ns.DeepCopy()
+		modified := false
+		resourcemerge.MergeOwnerRefs(&modified, &nsCopy.OwnerReferences, ownerReferences)
+		if !modified {
+			return nil
+		}
+
+		_, err = kubeClient.CoreV1().Namespaces().Update(ctx, nsCopy, metav1.UpdateOptions{})
 		return err
 	}
 
