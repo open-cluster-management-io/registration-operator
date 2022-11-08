@@ -454,14 +454,6 @@ func TestApplyDirectly(t *testing.T) {
 			expectErr:      false,
 		},
 		{
-			name: "Apply v1beta1 CRD",
-			applyFiles: map[string]runtime.Object{
-				"crd": newUnstructured("apiextensions.k8s.io/v1beta1", "CustomResourceDefinition", "", "", map[string]interface{}{}),
-			},
-			applyFileNames: []string{"crd"},
-			expectErr:      false,
-		},
-		{
 			name: "Apply CRD with nil apiExtensionClient",
 			applyFiles: map[string]runtime.Object{
 				"crd": newUnstructured("apiextensions.k8s.io/v1", "CustomResourceDefinition", "", "", map[string]interface{}{}),

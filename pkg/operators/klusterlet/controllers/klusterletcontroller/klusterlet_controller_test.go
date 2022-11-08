@@ -19,7 +19,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/apimachinery/pkg/util/version"
-	fakedynamic "k8s.io/client-go/dynamic/fake"
 	"k8s.io/client-go/kubernetes"
 	fakekube "k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/rest"
@@ -44,7 +43,6 @@ type testController struct {
 	kubeClient         *fakekube.Clientset
 	apiExtensionClient *fakeapiextensions.Clientset
 	operatorClient     *fakeoperatorclient.Clientset
-	dynamicClient      *fakedynamic.FakeDynamicClient
 	workClient         *fakeworkclient.Clientset
 	operatorStore      cache.Store
 
@@ -159,9 +157,6 @@ func newTestController(t *testing.T, klusterlet *operatorapiv1.Klusterlet, appli
 	operatorInformers := operatorinformers.NewSharedInformerFactory(fakeOperatorClient, 5*time.Minute)
 	kubeVersion, _ := version.ParseGeneric("v1.18.0")
 
-	scheme := runtime.NewScheme()
-	dynamicClient := fakedynamic.NewSimpleDynamicClient(scheme)
-
 	hubController := &klusterletController{
 		klusterletClient:          fakeOperatorClient.OperatorV1().Klusterlets(),
 		kubeClient:                fakeKubeClient,
@@ -193,7 +188,6 @@ func newTestController(t *testing.T, klusterlet *operatorapiv1.Klusterlet, appli
 		cleanupController:  cleanupController,
 		kubeClient:         fakeKubeClient,
 		apiExtensionClient: fakeAPIExtensionClient,
-		dynamicClient:      dynamicClient,
 		operatorClient:     fakeOperatorClient,
 		workClient:         fakeWorkClient,
 		operatorStore:      store,
@@ -897,15 +891,6 @@ func TestDeployOnKube111(t *testing.T) {
 		}
 	}
 
-	dynamicAction := controller.dynamicClient.Actions()
-	createCRDObjects := []runtime.Object{}
-	for _, action := range dynamicAction {
-		if action.GetVerb() == "create" {
-			object := action.(clienttesting.CreateActionImpl).Object
-			createCRDObjects = append(createCRDObjects, object)
-		}
-	}
-
 	// Check if resources are created as expected
 	// 11 managed static manifests + 11 management static manifests - 2 duplicated service account manifests + 1 addon namespace + 2 deployments + 2 kube111 clusterrolebindings
 	if len(createObjects) != 25 {
@@ -913,9 +898,6 @@ func TestDeployOnKube111(t *testing.T) {
 	}
 	for _, object := range createObjects {
 		ensureObject(t, object, klusterlet)
-	}
-	if len(createCRDObjects) != 2 {
-		t.Errorf("Expect 2 v1beta1 crd objects created in the sync loop, actual %d", len(createCRDObjects))
 	}
 
 	operatorAction := controller.operatorClient.Actions()

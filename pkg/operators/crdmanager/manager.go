@@ -96,15 +96,14 @@ func (m *manager[T]) Clean(ctx context.Context) error {
 	var errs []error
 	var remainingCRDs []string
 	for name := range m.crds {
-		_, err := m.client.Get(ctx, name, metav1.GetOptions{})
-		if errors.IsNotFound(err) {
+		err := m.client.Delete(ctx, name, metav1.DeleteOptions{})
+		switch {
+		case errors.IsNotFound(err):
 			continue
-		} else if err == nil {
-			remainingCRDs = append(remainingCRDs, remainingCRDs...)
-		}
-		if err := m.client.Delete(ctx, name, metav1.DeleteOptions{}); err != nil {
+		case err == nil:
+			remainingCRDs = append(remainingCRDs, name)
+		default:
 			errs = append(errs, err)
-			continue
 		}
 	}
 
