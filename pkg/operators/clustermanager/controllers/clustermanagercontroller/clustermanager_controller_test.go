@@ -62,7 +62,25 @@ func newClusterManager(name string) *operatorapiv1.ClusterManager {
 		},
 	}
 }
+func hasCondition(conditions []metav1.Condition, expectedType, expectedReason string, expectedStatus metav1.ConditionStatus) bool {
+	for _, condition := range conditions {
+		if condition.Type != expectedType {
+			continue
+		}
 
+		if condition.Status != expectedStatus {
+			return false
+		}
+
+		if condition.Reason != expectedReason {
+			return false
+		}
+
+		return true
+	}
+
+	return false
+}
 func newTestController(t *testing.T, clustermanager *operatorapiv1.ClusterManager) *testController {
 	kubeClient := fakekube.NewSimpleClientset()
 	kubeInfomers := kubeinformers.NewSharedInformerFactory(kubeClient, 5*time.Minute)
@@ -226,7 +244,7 @@ func TestSyncDeploy(t *testing.T) {
 	testinghelper.AssertEqualNumber(t, len(createCRDObjects), 10)
 }
 
-func TestSyncDeployNoWebhook(t *testing.T) {
+func TestSyncDeployNoWebhookPod(t *testing.T) {
 	clusterManager := newClusterManager("testhub")
 	tc := newTestController(t, clusterManager)
 	setup(t, tc, nil)
@@ -237,7 +255,13 @@ func TestSyncDeployNoWebhook(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Expected no error when sync, %v", err)
 	}
-
+	clusterManager, err = tc.clusterManagerController.clusterManagerClient.Get(ctx, clusterManager.Name, metav1.GetOptions{})
+	if err != nil {
+		t.Errorf("Failed to get cluster manager")
+	}
+	if !hasCondition(clusterManager.Status.Conditions, clusterManagerProgressing, "ClusterManagerProcessing", metav1.ConditionTrue) {
+		t.Errorf("Expect processing condition, But can not found it. Condition: %v", clusterManager.Status.Conditions)
+	}
 	createKubeObjects := []runtime.Object{}
 	kubeActions := append(tc.hubKubeClient.Actions(), tc.managementKubeClient.Actions()...) // record objects from both hub and management cluster
 	for _, action := range kubeActions {

@@ -136,7 +136,9 @@ var (
 
 const (
 	clusterManagerFinalizer = "operator.open-cluster-management.io/cluster-manager-cleanup"
-	clusterManagerApplied   = "Applied"
+
+	clusterManagerApplied     = "Applied"
+	clusterManagerProgressing = "Progressing"
 
 	caBundleConfigmap = "ca-bundle-configmap"
 
@@ -245,6 +247,7 @@ func (n *clusterManagerController) checkFeatureGate(
 }
 
 func (n *clusterManagerController) sync(ctx context.Context, controllerContext factory.SyncContext) error {
+	var errs []error
 	clusterManagerName := controllerContext.QueueKey()
 	klog.V(4).Infof("Reconciling ClusterManager %q", clusterManagerName)
 
@@ -371,7 +374,7 @@ func (n *clusterManagerController) sync(ctx context.Context, controllerContext f
 	config.WorkAPIServiceCABundle = encodedCaBundle
 
 	// Apply resources on the hub cluster
-	hubAppliedErrs, err := applyHubResources(
+	hubAppliedErr := applyHubResources(
 		ctx,
 		clusterManagerNamespace,
 		clusterManagerMode,
@@ -379,12 +382,11 @@ func (n *clusterManagerController) sync(ctx context.Context, controllerContext f
 		&relatedResources,
 		hubClient, hubApiExtensionClient, hubApiRegistrationClient,
 		n.recorder, n.cache)
-	if err != nil {
-		return err
+	if hubAppliedErr != nil {
+		errs = append(errs, hubAppliedErr)
 	}
-
 	// Apply resources on the management cluster
-	currentGenerations, managementAppliedErrs, err := applyManagementResources(
+	currentGenerations, managementAppliedErr := applyManagementResources(
 		ctx,
 		clusterManager,
 		config,
@@ -392,10 +394,13 @@ func (n *clusterManagerController) sync(ctx context.Context, controllerContext f
 		hubClient, hubKubeConfig,
 		managementClient, n.recorder, n.cache, n.ensureSAKubeconfigs,
 	)
-	if err != nil {
-		return err
+	if managementAppliedErr != nil {
+		errs = append(errs, managementAppliedErr)
 	}
-	errs := append(hubAppliedErrs, managementAppliedErrs...)
+	if len(errs) != 0 {
+		setAppliedConditioins(conditions, errs)
+		return updateClusterManagerStatus(ctx, n.clusterManagerClient, clusterManager.Name, conditions, currentGenerations, relatedResources, clusterManager.Status.ObservedGeneration, errs)
+	}
 
 	//Check registration and work webhook pod running, then apply webhook config files
 	registrationWebhookName := clusterManagerName + "-registration-webhook"
@@ -405,44 +410,80 @@ func (n *clusterManagerController) sync(ctx context.Context, controllerContext f
 	err = applyWebhookConfig(ctx, registrationWebhookName, hubRegistrationWebhookResourceFiles, &relatedResources, config, hubClient, managementClient, n.recorder, n.cache)
 	if err != nil {
 		if errorhelpers.As(err, &rqe) {
-			klog.Warning("Apply webhook config %v fail. Error: %v", registrationWebhookName, err)
 			controllerContext.Queue().AddAfter(clusterManagerName, err.(helpers.RequeueError).RequeueTime)
-		} else {
-			errs = append(errs, err)
+			meta.SetStatusCondition(conditions, metav1.Condition{
+				Type:    clusterManagerProgressing,
+				Status:  metav1.ConditionTrue,
+				Reason:  "ClusterManagerProcessing",
+				Message: fmt.Sprintf("Apply webhook config %v fail. Error: %v", registrationWebhookName, err),
+			})
+			return updateClusterManagerStatus(ctx, n.clusterManagerClient, clusterManager.Name, conditions, currentGenerations, relatedResources, clusterManager.Status.ObservedGeneration, nil)
 		}
+		errs = append(errs, err)
+		setAppliedConditioins(conditions, errs)
+		return updateClusterManagerStatus(ctx, n.clusterManagerClient, clusterManager.Name, conditions, currentGenerations, relatedResources, clusterManager.Status.ObservedGeneration, errs)
 	}
 
 	err = applyWebhookConfig(ctx, workWebhookName, hubWorkWebhookResourceFiles, &relatedResources, config, hubClient, managementClient, n.recorder, n.cache)
 	if err != nil {
 		if errorhelpers.As(err, &rqe) {
-			klog.Warning("Apply webhook config %v fail. Error: %v", registrationWebhookName, err)
 			controllerContext.Queue().AddAfter(clusterManagerName, err.(helpers.RequeueError).RequeueTime)
-		} else {
-			errs = append(errs, err)
+			meta.SetStatusCondition(conditions, metav1.Condition{
+				Type:    clusterManagerProgressing,
+				Status:  metav1.ConditionTrue,
+				Reason:  "ClusterManagerProcessing",
+				Message: fmt.Sprintf("Apply webhook config %v fail. Error: %v", workWebhookName, err),
+			})
+			return updateClusterManagerStatus(ctx, n.clusterManagerClient, clusterManager.Name, conditions, currentGenerations, relatedResources, clusterManager.Status.ObservedGeneration, nil)
 		}
+		setAppliedConditioins(conditions, errs)
+		return updateClusterManagerStatus(ctx, n.clusterManagerClient, clusterManager.Name, conditions, currentGenerations, relatedResources, clusterManager.Status.ObservedGeneration, errs)
 	}
+	setAppliedConditioins(conditions, nil)
+	return updateClusterManagerStatus(ctx, n.clusterManagerClient, clusterManager.Name, conditions, currentGenerations, relatedResources, clusterManager.Generation, nil)
+}
 
-	// Update status
-	observedGeneration := clusterManager.Status.ObservedGeneration
-	if len(errs) == 0 {
-		meta.SetStatusCondition(conditions, metav1.Condition{
-			Type:    clusterManagerApplied,
-			Status:  metav1.ConditionTrue,
-			Reason:  "ClusterManagerApplied",
-			Message: "Components of cluster manager are applied",
-		})
-		observedGeneration = clusterManager.Generation
-	} else {
+func setAppliedConditioins(conditions *[]metav1.Condition, errs []error) {
+	if len(errs) != 0 {
 		meta.SetStatusCondition(conditions, metav1.Condition{
 			Type:    clusterManagerApplied,
 			Status:  metav1.ConditionFalse,
 			Reason:  "ClusterManagerApplyFailed",
-			Message: "Components of cluster manager fail to be applied",
+			Message: fmt.Sprintf("Components of cluster manager fail to be applied. Error: %v", errs),
 		})
+		meta.SetStatusCondition(conditions, metav1.Condition{
+			Type:    clusterManagerProgressing,
+			Status:  metav1.ConditionFalse,
+			Reason:  "ClusterManagerProcessing",
+			Message: "",
+		})
+		return
 	}
+	meta.SetStatusCondition(conditions, metav1.Condition{
+		Type:    clusterManagerApplied,
+		Status:  metav1.ConditionTrue,
+		Reason:  "ClusterManagerApplied",
+		Message: "Components of cluster manager are applied",
+	})
+	meta.SetStatusCondition(conditions, metav1.Condition{
+		Type:    clusterManagerProgressing,
+		Status:  metav1.ConditionFalse,
+		Reason:  "ClusterManagerProcessing",
+		Message: "",
+	})
+}
 
+func updateClusterManagerStatus(ctx context.Context,
+	clusterManagerClient operatorv1client.ClusterManagerInterface,
+	clusterManagerName string,
+	conditions *[]metav1.Condition,
+	currentGenerations []operatorapiv1.GenerationStatus,
+	relatedResources []operatorapiv1.RelatedResourceMeta,
+	observedGeneration int64,
+	errs []error,
+) error {
 	_, _, updatedErr := helpers.UpdateClusterManagerStatus(
-		ctx, n.clusterManagerClient, clusterManager.Name,
+		ctx, clusterManagerClient, clusterManagerName,
 		helpers.UpdateClusterManagerConditionFn(*conditions...),
 		helpers.UpdateClusterManagerGenerationsFn(currentGenerations...),
 		helpers.UpdateClusterManagerRelatedResourcesFn(relatedResources...),
@@ -454,7 +495,6 @@ func (n *clusterManagerController) sync(ctx context.Context, controllerContext f
 	if updatedErr != nil {
 		errs = append(errs, updatedErr)
 	}
-
 	return operatorhelpers.NewMultiLineAggregate(errs)
 }
 
@@ -468,7 +508,7 @@ func applyHubResources(
 	hubClient kubernetes.Interface, hubApiExtensionClient apiextensionsclient.Interface, hubApiRegistrationClient apiregistrationclient.APIServicesGetter,
 	recorder events.Recorder,
 	cache resourceapply.ResourceCache,
-) (appliedErrs []error, err error) {
+) (appliedErr error) {
 	// Try to load ca bundle from configmap
 	// If the configmap is found, populate it into configmap.
 	// If the configmap not found yet, skip this and apply other resources first.
@@ -494,13 +534,14 @@ func applyHubResources(
 		},
 		hubResources...,
 	)
+	var appliedErrs []error
 	for _, result := range resourceResults {
 		if result.Error != nil {
 			appliedErrs = append(appliedErrs, fmt.Errorf("%q (%T): %v", result.File, result.Type, result.Error))
 		}
 	}
 
-	return appliedErrs, nil
+	return operatorhelpers.NewMultiLineAggregate(appliedErrs)
 }
 
 func applyWebhookConfig(
@@ -578,7 +619,10 @@ func applyManagementResources(
 	recorder events.Recorder,
 	cache resourceapply.ResourceCache,
 	ensureSAKubeconfigs func(ctx context.Context, clusterManagerName, clusterManagerNamespace string, hubConfig *rest.Config, hubClient, managementClient kubernetes.Interface, recorder events.Recorder) error,
-) (currentGenerations []operatorapiv1.GenerationStatus, appliedErrs []error, err error) {
+) (currentGenerations []operatorapiv1.GenerationStatus, err error) {
+
+	var appliedErrs []error
+
 	// Apply management cluster resources(namespace and deployments).
 	// Note: the certrotation-controller will create CABundle after the namespace applied.
 	// And CABundle is used to render apiservice resources.
@@ -604,7 +648,10 @@ func applyManagementResources(
 			appliedErrs = append(appliedErrs, fmt.Errorf("%q (%T): %v", result.File, result.Type, result.Error))
 		}
 	}
-
+	//Namespace apply failed, should return
+	if len(appliedErrs) != 0 {
+		return currentGenerations, operatorhelpers.NewMultiLineAggregate(appliedErrs)
+	}
 	clusterManagerName := clusterManager.Name
 	clusterManagerMode := clusterManager.Spec.DeployOption.Mode
 	clusterManagerNamespace := helpers.ClusterManagerNamespace(clusterManagerName, clusterManagerMode)
@@ -616,7 +663,7 @@ func applyManagementResources(
 		err = ensureSAKubeconfigs(ctx, clusterManagerName, clusterManagerNamespace,
 			hubKubeConfig, hubClient, managementKubeClient, recorder)
 		if err != nil {
-			return currentGenerations, appliedErrs, err
+			return currentGenerations, err
 		}
 	}
 
@@ -642,8 +689,7 @@ func applyManagementResources(
 		}
 		currentGenerations = append(currentGenerations, currentGeneration)
 	}
-
-	return currentGenerations, appliedErrs, nil
+	return currentGenerations, operatorhelpers.NewMultiLineAggregate(appliedErrs)
 }
 
 // updateStoredVersion update(remove) deleted api version from CRD status.StoredVersions

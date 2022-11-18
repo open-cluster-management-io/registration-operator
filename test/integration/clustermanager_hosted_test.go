@@ -290,6 +290,19 @@ var _ = ginkgo.Describe("ClusterManager Hosted Mode", func() {
 				return nil
 			}, eventuallyTimeout, eventuallyInterval).Should(gomega.BeNil())
 
+			gomega.Eventually(func() error {
+				clusterManager, err := hostedOperatorClient.OperatorV1().ClusterManagers().Get(hostedCtx, clusterManagerName, metav1.GetOptions{})
+				if err != nil {
+					return err
+				}
+
+				if !util.HasCondition(clusterManager.Status.Conditions, "Progressing", "ClusterManagerProcessing", metav1.ConditionTrue) {
+					return fmt.Errorf("except processiong condition, but got %v", clusterManager.Status.Conditions)
+				}
+
+				return nil
+			}, eventuallyTimeout, eventuallyInterval).Should(gomega.BeNil())
+
 			updateDeploymentStatus(hostedKubeClient, hubNamespaceHosted, hubRegistrationWebhookDeployment)
 
 			// Check if generations are correct
