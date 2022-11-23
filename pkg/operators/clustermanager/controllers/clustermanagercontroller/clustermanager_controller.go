@@ -302,24 +302,29 @@ func (n *clusterManagerController) sync(ctx context.Context, controllerContext f
 	}
 
 	// Update status
-	observedGeneration := clusterManager.Status.ObservedGeneration
+	var conds []metav1.Condition
 	if len(errs) == 0 {
-		meta.SetStatusCondition(&clusterManager.Status.Conditions, metav1.Condition{
+		conds = append(conds, metav1.Condition{
 			Type:    clusterManagerApplied,
 			Status:  metav1.ConditionTrue,
 			Reason:  "ClusterManagerApplied",
 			Message: "Components of cluster manager are applied",
 		})
+	} else if cond := meta.FindStatusCondition(clusterManager.Status.Conditions, clusterManagerApplied); cond != nil {
+		conds = append(conds, *cond)
 	}
-	observedGeneration = clusterManager.Generation
+
+	if cond := meta.FindStatusCondition(clusterManager.Status.Conditions, clusterManagerProgressing); cond != nil {
+		conds = append(conds, *cond)
+	}
 
 	_, _, updatedErr := helpers.UpdateClusterManagerStatus(
 		ctx, n.clusterManagerClient, clusterManager.Name,
-		helpers.UpdateClusterManagerConditionFn(clusterManager.Status.Conditions...),
+		helpers.UpdateClusterManagerConditionFn(conds...),
 		helpers.UpdateClusterManagerGenerationsFn(clusterManager.Status.Generations...),
 		helpers.UpdateClusterManagerRelatedResourcesFn(clusterManager.Status.RelatedResources...),
 		func(oldStatus *operatorapiv1.ClusterManagerStatus) error {
-			oldStatus.ObservedGeneration = observedGeneration
+			oldStatus.ObservedGeneration = clusterManager.Generation
 			return nil
 		},
 	)
