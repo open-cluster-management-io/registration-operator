@@ -48,9 +48,23 @@ const (
 	defaultReplica = 3
 	singleReplica  = 1
 
-	ComponentHubRegistrationKey   = "hub-registration"
-	ComponentSpokeRegistrationKey = "spoke-registration"
-	ComponentHubWorkKey           = "hub-work"
+	componentKeyHubRegistration   = "hub-registration"
+	componentKeySpokeRegistration = "spoke-registration"
+	componentKeyHubWork           = "hub-work"
+	componentKeySpokeWork         = "spoke-work"
+
+	componentNameRegistration = "Registration"
+	componentNameWork         = "Work"
+
+	OperatorTypeClusterManager = "ClusterManager"
+	OperatorTypeKlusterlet     = "Klusterlet"
+
+	RegistrationFeatureGatesValid = "ValidRegistrationFeatureGates"
+	WorkFeatureGatesValid         = "ValidWorkFeatureGates"
+
+	FeatureGatesReasonEmpty    = "FeatureGatesEmpty"
+	FeatureGatesReasonAllValid = "FeatureGatesAllValid"
+	FeatureGatesReasonNil      = "FeatureGatesNil"
 )
 
 var (
@@ -58,10 +72,18 @@ var (
 	genericCodecs = serializer.NewCodecFactory(genericScheme)
 	genericCodec  = genericCodecs.UniversalDeserializer()
 
-	FeatureGatesMap = map[string]map[featuregate.Feature]featuregate.FeatureSpec{
-		ComponentHubRegistrationKey:   ocmfeature.DefaultHubRegistrationFeatureGates,
-		ComponentSpokeRegistrationKey: ocmfeature.DefaultSpokeRegistrationFeatureGates,
-		ComponentHubWorkKey:           ocmfeature.DefaultHubWorkFeatureGates,
+	featureGatesMap = map[string]map[featuregate.Feature]featuregate.FeatureSpec{
+		componentKeyHubRegistration:   ocmfeature.DefaultHubRegistrationFeatureGates,
+		componentKeySpokeRegistration: ocmfeature.DefaultSpokeRegistrationFeatureGates,
+		componentKeyHubWork:           ocmfeature.DefaultHubWorkFeatureGates,
+		componentKeySpokeWork:         ocmfeature.DefaultSpokeWorkFeatureGates,
+	}
+
+	defaultNilFeatureGatesMap = map[string][]string{
+		componentKeyHubRegistration:   {"--feature-gates=DefaultClusterSet=true"},
+		componentKeySpokeRegistration: {"--feature-gates=AddonManagement=true"},
+		componentKeyHubWork:           {},
+		componentKeySpokeWork:         {},
 	}
 )
 
@@ -140,6 +162,13 @@ func UpdateKlusterletStatus(
 		oldStatus := &klusterlet.Status
 
 		newStatus := oldStatus.DeepCopy()
+		// TODO: just for upgrading, we change the condition type from "InvalidRegistrationFeatureGates" to
+		// "ValidRegistrationFeatureGates", need to remove this in 0.11.0
+		if err := RemoveKlusterletConditionFn("InvalidRegistrationFeatureGates")(newStatus); err != nil {
+			return err
+		}
+
+		// update the klusterlet status by update functions
 		for _, update := range updateFuncs {
 			if err := update(newStatus); err != nil {
 				return err
@@ -173,12 +202,12 @@ func UpdateKlusterletConditionFn(conds ...metav1.Condition) UpdateKlusterletStat
 	}
 }
 
+// RemoveKlusterletConditionFn return a function to remove a condition from the conditions
 // TODO: just for upgrading, we need to remove this in 0.11.0
-func ReplaceKlusterletConditionFn(removeConditionType string, conds ...metav1.Condition) UpdateKlusterletStatusFunc {
+func RemoveKlusterletConditionFn(condTypes ...string) UpdateKlusterletStatusFunc {
 	return func(oldStatus *operatorapiv1.KlusterletStatus) error {
-		meta.RemoveStatusCondition(&oldStatus.Conditions, removeConditionType)
-		for _, cond := range conds {
-			meta.SetStatusCondition(&oldStatus.Conditions, cond)
+		for _, t := range condTypes {
+			meta.RemoveStatusCondition(&oldStatus.Conditions, t)
 		}
 		return nil
 	}
@@ -887,11 +916,126 @@ func FeatureGatesArgs(featureGates []operatorapiv1.FeatureGate, component string
 }
 
 func isValidFeatureGate(feature string, component string) bool {
-	if featureGates, ok := FeatureGatesMap[component]; ok {
+	if featureGates, ok := featureGatesMap[component]; ok {
 		if _, ok := featureGates[featuregate.Feature(feature)]; ok {
 			return true
 		}
 	}
 
 	return false
+}
+
+func defaultNilFeatureGates(componentKey string) []string {
+	return defaultNilFeatureGatesMap[componentKey]
+}
+
+func getComponentKey(operatorType string, componentName string) string {
+	var componentKey string
+	switch componentName {
+	case componentNameRegistration:
+		if operatorType == OperatorTypeClusterManager {
+			componentKey = componentKeyHubRegistration
+		}
+		if operatorType == OperatorTypeKlusterlet {
+			componentKey = componentKeySpokeRegistration
+		}
+	case componentNameWork:
+		if operatorType == OperatorTypeClusterManager {
+			componentKey = componentKeyHubWork
+		}
+		if operatorType == OperatorTypeKlusterlet {
+			componentKey = componentKeySpokeWork
+		}
+	}
+
+	return componentKey
+}
+
+func getConditionType(componentName string) string {
+	var conditionType string
+	switch componentName {
+	case componentNameRegistration:
+		conditionType = RegistrationFeatureGatesValid
+	case componentNameWork:
+		conditionType = WorkFeatureGatesValid
+	}
+
+	return conditionType
+}
+
+// CheckRegistrationFeatureGates check if feature gates are valid for RegistrationConfiguration, return
+// the valid feature gates, the condition and if there is error, this func will not update the condition
+// to the status of the cluster manager or klusterlet
+func CheckRegistrationFeatureGates(operatorType string,
+	configuration *operatorapiv1.RegistrationConfiguration) ([]string, metav1.Condition, error) {
+	if operatorType != OperatorTypeClusterManager && operatorType != OperatorTypeKlusterlet {
+		return nil, metav1.Condition{}, fmt.Errorf("not supported operatorType: %s", operatorType)
+	}
+
+	if configuration == nil {
+		return checkNilFeatureGates(operatorType, componentNameRegistration)
+	}
+	return checkFeatureGates(operatorType, componentNameRegistration, configuration.FeatureGates)
+}
+
+// CheckWorkFeatureGates check if feature gates are valid for WorkConfiguration, return
+// the valid feature gates, the condition and if there is error, this func will not
+// update the condition to the status of the cluster manager or klusterlet
+func CheckWorkFeatureGates(operatorType string,
+	configuration *operatorapiv1.WorkConfiguration) ([]string, metav1.Condition, error) {
+	if operatorType != OperatorTypeClusterManager && operatorType != OperatorTypeKlusterlet {
+		return nil, metav1.Condition{}, fmt.Errorf("not supported operatorType: %s", operatorType)
+	}
+
+	if configuration == nil {
+		return checkNilFeatureGates(operatorType, componentNameWork)
+	}
+	return checkFeatureGates(operatorType, componentNameWork, configuration.FeatureGates)
+}
+
+func checkNilFeatureGates(operatorType string, componentName string) ([]string, metav1.Condition, error) {
+	conditionType := getConditionType(componentName)
+	componentKey := getComponentKey(operatorType, componentName)
+
+	return defaultNilFeatureGates(componentKey), metav1.Condition{
+		Type:    conditionType,
+		Status:  metav1.ConditionTrue,
+		Reason:  FeatureGatesReasonNil,
+		Message: fmt.Sprintf("%s feature gates configuration is nil ", componentName),
+	}, nil
+}
+
+func checkFeatureGates(operatorType string, componentName string,
+	featureGates []operatorapiv1.FeatureGate) ([]string, metav1.Condition, error) {
+
+	conditionType := getConditionType(componentName)
+	componentKey := getComponentKey(operatorType, componentName)
+
+	if len(featureGates) > 0 {
+		featureGateArgs, invalidFeatureGates := FeatureGatesArgs(featureGates, componentKey)
+		if len(invalidFeatureGates) == 0 {
+			return featureGateArgs, metav1.Condition{
+				Type:    conditionType,
+				Status:  metav1.ConditionTrue,
+				Reason:  FeatureGatesReasonAllValid,
+				Message: fmt.Sprintf("%s feature gates are all valid", componentName),
+			}, nil
+		}
+
+		// for the invalid feature gates, we show them in the condition, here only return the valid
+		// feature gates, so the caller can use the valid ones and degrade the invalid ones to the
+		// default values
+		return featureGateArgs, metav1.Condition{
+			Type: conditionType, Status: metav1.ConditionFalse, Reason: "InvalidFeatureGatesExisting",
+			Message: fmt.Sprintf("there are some invalid feature gates of %s: %v, will process them with default values",
+				componentName, invalidFeatureGates),
+		}, nil
+	}
+
+	return nil, metav1.Condition{
+		Type:    conditionType,
+		Status:  metav1.ConditionTrue,
+		Reason:  FeatureGatesReasonEmpty,
+		Message: fmt.Sprintf("%s feature gates configuration is empty ", componentName),
+	}, nil
 }
