@@ -238,28 +238,16 @@ func (n *klusterletController) sync(ctx context.Context, controllerContext facto
 		return nil
 	}
 
-	// If there are some invalid feature gates of registration, will output condition
-	// `ValidRegistrationFeatureGates` False in Klusterlet.
-	featureGates, condition, err := helpers.CheckRegistrationFeatureGates(helpers.OperatorTypeKlusterlet,
-		klusterlet.Spec.RegistrationConfiguration)
-	if err != nil {
-		return err
-	}
-	config.RegistrationFeatureGates = featureGates
-	registrationFeatureGateCondition := condition
-
-	// If there are some invalid feature gates of work, will output condition
-	// `ValidWorkFeatureGates` False in Klusterlet.
-	// TODO: When splitting permissions in the future, if the ExecutorValidatingCaches function is enabled,
-	//       additional permissions for get, list, and watch RBAC resources required by this function need
-	//       to be applied
-	featureGates, condition, err = helpers.CheckWorkFeatureGates(helpers.OperatorTypeKlusterlet,
+	var featureGateCondition metav1.Condition
+	// If there are some invalid feature gates of registration or work, will output condition `ValidFeatureGates`
+	// False in Klusterlet.
+	// TODO: For the work feature gates, when splitting permissions in the future, if the ExecutorValidatingCaches
+	//       function is enabled, additional permissions for get, list, and watch RBAC resources required by this
+	//       function need to be applied
+	config.RegistrationFeatureGates, config.WorkFeatureGates, featureGateCondition = helpers.CheckFeatureGates(
+		helpers.OperatorTypeKlusterlet,
+		klusterlet.Spec.RegistrationConfiguration,
 		klusterlet.Spec.WorkConfiguration)
-	if err != nil {
-		return err
-	}
-	config.WorkFeatureGates = featureGates
-	workFeatureGateCondition := condition
 
 	reconcilers := []klusterletReconcile{
 		&crdReconcile{
@@ -311,7 +299,7 @@ func (n *klusterletController) sync(ctx context.Context, controllerContext facto
 
 	// If we get here, we have successfully applied everything and should indicate that
 	_, _, _ = helpers.UpdateKlusterletStatus(ctx, n.klusterletClient, klusterletName,
-		helpers.UpdateKlusterletConditionFn(registrationFeatureGateCondition, workFeatureGateCondition, *appliedCondition),
+		helpers.UpdateKlusterletConditionFn(featureGateCondition, *appliedCondition),
 		helpers.UpdateKlusterletGenerationsFn(klusterlet.Status.Generations...),
 		helpers.UpdateKlusterletRelatedResourcesFn(klusterlet.Status.RelatedResources...),
 		func(oldStatus *operatorapiv1.KlusterletStatus) error {

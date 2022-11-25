@@ -148,26 +148,13 @@ func (n *clusterManagerController) sync(ctx context.Context, controllerContext f
 		},
 	}
 
-	var conds []metav1.Condition
-
-	// If there are some invalid feature gates of registration, will output
-	// condition `ValidRegistrationFeatureGates` False in ClusterManager.
-	featureGates, condition, err := helpers.CheckRegistrationFeatureGates(helpers.OperatorTypeClusterManager,
-		clusterManager.Spec.RegistrationConfiguration)
-	if err != nil {
-		return err
-	}
-	config.RegistrationFeatureGates = featureGates
-	conds = append(conds, condition)
-	// If there are some invalid feature gates of work, will output
-	// condition `ValidWorkFeatureGates` False in ClusterManager.
-	featureGates, condition, err = helpers.CheckWorkFeatureGates(helpers.OperatorTypeClusterManager,
+	var featureGateCondition metav1.Condition
+	// If there are some invalid feature gates of registration or work, will output
+	// condition `ValidFeatureGates` False in ClusterManager.
+	config.RegistrationFeatureGates, config.WorkFeatureGates, featureGateCondition = helpers.CheckFeatureGates(
+		helpers.OperatorTypeClusterManager,
+		clusterManager.Spec.RegistrationConfiguration,
 		clusterManager.Spec.WorkConfiguration)
-	if err != nil {
-		return err
-	}
-	config.WorkFeatureGates = featureGates
-	conds = append(conds, condition)
 
 	// If we are deploying in the hosted mode, it requires us to create webhook in a different way with the default mode.
 	// In the hosted mode, the webhook servers is running in the management cluster but the users are accessing the hub cluster.
@@ -256,6 +243,7 @@ func (n *clusterManagerController) sync(ctx context.Context, controllerContext f
 	}
 
 	// Update status
+	var conds []metav1.Condition = []metav1.Condition{featureGateCondition}
 	if len(errs) == 0 {
 		conds = append(conds, metav1.Condition{
 			Type:    clusterManagerApplied,

@@ -904,11 +904,11 @@ var _ = ginkgo.Describe("Klusterlet", func() {
 			gomega.Expect(operatorClient.OperatorV1().Klusterlets().Delete(context.Background(),
 				klusterlet.Name, metav1.DeleteOptions{})).To(gomega.BeNil())
 		})
-		ginkgo.It("feature gates configuration is nil", func() {
+		ginkgo.It("feature gates configuration is nil or empty", func() {
 			klusterlet.Spec.RegistrationConfiguration = nil
-			klusterlet.Spec.WorkConfiguration = nil
+			klusterlet.Spec.WorkConfiguration = &operatorapiv1.WorkConfiguration{}
 
-			ginkgo.By("Create the klusterlet with RegistrationConfiguration nil and WorkConfiguration nil")
+			ginkgo.By("Create the klusterlet with RegistrationConfiguration nil and WorkConfiguration emtpy")
 			_, err := operatorClient.OperatorV1().Klusterlets().Create(context.Background(),
 				klusterlet, metav1.CreateOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -945,6 +945,9 @@ var _ = ginkgo.Describe("Klusterlet", func() {
 				"RegistrationDesiredDegraded", "UnavailablePods", metav1.ConditionTrue)
 			util.AssertKlusterletCondition(klusterlet.Name, operatorClient,
 				"WorkDesiredDegraded", "UnavailablePods", metav1.ConditionTrue)
+
+			util.AssertKlusterletCondition(klusterlet.Name, operatorClient, helpers.FeatureGatesTypeValid,
+				helpers.FeatureGatesReasonAllValid, metav1.ConditionTrue)
 
 			ginkgo.By("Check the registration-agent has the expected feature gates")
 			registrationDeployment, err := kubeClient.AppsV1().Deployments(klusterletNamespace).Get(
@@ -952,8 +955,6 @@ var _ = ginkgo.Describe("Klusterlet", func() {
 			gomega.Expect(err).ToNot(gomega.HaveOccurred())
 			gomega.Expect(registrationDeployment.Spec.Template.Spec.Containers[0].Args).Should(
 				gomega.ContainElement("--feature-gates=AddonManagement=true"))
-			util.AssertKlusterletCondition(klusterlet.Name, operatorClient, helpers.RegistrationFeatureGatesValid,
-				helpers.FeatureGatesReasonNil, metav1.ConditionTrue)
 
 			ginkgo.By("Check the work-agent has the expected feature gates")
 			workDeployment, err := kubeClient.AppsV1().Deployments(klusterletNamespace).Get(
@@ -961,69 +962,9 @@ var _ = ginkgo.Describe("Klusterlet", func() {
 			gomega.Expect(err).ToNot(gomega.HaveOccurred())
 			gomega.Expect(workDeployment.Spec.Template.Spec.Containers[0].Args).ShouldNot(
 				gomega.ContainElement("--feature-gates="))
-			util.AssertKlusterletCondition(klusterlet.Name, operatorClient, helpers.RegistrationFeatureGatesValid,
-				helpers.FeatureGatesReasonNil, metav1.ConditionTrue)
+
 		})
-		ginkgo.It("feature gates configuration is empty", func() {
-			klusterlet.Spec.RegistrationConfiguration = &operatorapiv1.RegistrationConfiguration{}
-			klusterlet.Spec.WorkConfiguration = &operatorapiv1.WorkConfiguration{}
 
-			ginkgo.By("Create the klusterlet with RegistrationConfiguration empty and WorkConfiguration empty")
-			_, err := operatorClient.OperatorV1().Klusterlets().Create(context.Background(),
-				klusterlet, metav1.CreateOptions{})
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-			ginkgo.By("Create a bootstrap secret and make sure the kubeconfig can work")
-			bootStrapSecret := &corev1.Secret{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      helpers.BootstrapHubKubeConfig,
-					Namespace: klusterletNamespace,
-				},
-				Data: map[string][]byte{
-					"kubeconfig": util.NewKubeConfig(restConfig),
-				},
-			}
-			_, err = kubeClient.CoreV1().Secrets(klusterletNamespace).Create(context.Background(),
-				bootStrapSecret, metav1.CreateOptions{})
-			gomega.Expect(err).ToNot(gomega.HaveOccurred())
-
-			hubSecret, err := kubeClient.CoreV1().Secrets(klusterletNamespace).Get(context.Background(),
-				helpers.HubKubeConfig, metav1.GetOptions{})
-			gomega.Expect(err).ToNot(gomega.HaveOccurred())
-
-			ginkgo.By("Update hub secret and make sure the kubeconfig can work")
-			hubSecret = hubSecret.DeepCopy()
-			hubSecret.Data["cluster-name"] = []byte("testcluster")
-			hubSecret.Data["kubeconfig"] = util.NewKubeConfig(restConfig)
-			_, err = kubeClient.CoreV1().Secrets(klusterletNamespace).Update(context.Background(),
-				hubSecret, metav1.UpdateOptions{})
-			gomega.Expect(err).ToNot(gomega.HaveOccurred())
-
-			util.AssertKlusterletCondition(klusterlet.Name, operatorClient,
-				"HubConnectionDegraded", "HubConnectionFunctional", metav1.ConditionFalse)
-			util.AssertKlusterletCondition(klusterlet.Name, operatorClient,
-				"RegistrationDesiredDegraded", "UnavailablePods", metav1.ConditionTrue)
-			util.AssertKlusterletCondition(klusterlet.Name, operatorClient,
-				"WorkDesiredDegraded", "UnavailablePods", metav1.ConditionTrue)
-
-			ginkgo.By("Check the registration-agent has the expected feature gates")
-			registrationDeployment, err := kubeClient.AppsV1().Deployments(klusterletNamespace).Get(
-				context.Background(), registrationDeploymentName, metav1.GetOptions{})
-			gomega.Expect(err).ToNot(gomega.HaveOccurred())
-			gomega.Expect(registrationDeployment.Spec.Template.Spec.Containers[0].Args).ShouldNot(
-				gomega.ContainElement("--feature-gates="))
-			util.AssertKlusterletCondition(klusterlet.Name, operatorClient, helpers.RegistrationFeatureGatesValid,
-				helpers.FeatureGatesReasonEmpty, metav1.ConditionTrue)
-
-			ginkgo.By("Check the work-agent has the expected feature gates")
-			workDeployment, err := kubeClient.AppsV1().Deployments(klusterletNamespace).Get(
-				context.Background(), workDeploymentName, metav1.GetOptions{})
-			gomega.Expect(err).ToNot(gomega.HaveOccurred())
-			gomega.Expect(workDeployment.Spec.Template.Spec.Containers[0].Args).ShouldNot(
-				gomega.ContainElement("--feature-gates="))
-			util.AssertKlusterletCondition(klusterlet.Name, operatorClient, helpers.WorkFeatureGatesValid,
-				helpers.FeatureGatesReasonEmpty, metav1.ConditionTrue)
-		})
 		ginkgo.It("should be set correctly", func() {
 			klusterlet.Spec.RegistrationConfiguration = &operatorapiv1.RegistrationConfiguration{
 				FeatureGates: []operatorapiv1.FeatureGate{
@@ -1042,7 +983,7 @@ var _ = ginkgo.Describe("Klusterlet", func() {
 				},
 			}
 
-			ginkgo.By("Create the klusterlet with RegistrationConfiguration and WorkConfiguration")
+			ginkgo.By("Create the klusterlet with valid RegistrationConfiguration and WorkConfiguration")
 			_, err := operatorClient.OperatorV1().Klusterlets().Create(context.Background(),
 				klusterlet, metav1.CreateOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1080,14 +1021,15 @@ var _ = ginkgo.Describe("Klusterlet", func() {
 			util.AssertKlusterletCondition(klusterlet.Name, operatorClient,
 				"WorkDesiredDegraded", "UnavailablePods", metav1.ConditionTrue)
 
+			util.AssertKlusterletCondition(klusterlet.Name, operatorClient, helpers.FeatureGatesTypeValid,
+				helpers.FeatureGatesReasonAllValid, metav1.ConditionTrue)
+
 			ginkgo.By("Check the registration-agent has the expected feature gates")
 			registrationDeployment, err := kubeClient.AppsV1().Deployments(klusterletNamespace).Get(
 				context.Background(), registrationDeploymentName, metav1.GetOptions{})
 			gomega.Expect(err).ToNot(gomega.HaveOccurred())
 			gomega.Expect(registrationDeployment.Spec.Template.Spec.Containers[0].Args).Should(
 				gomega.ContainElement("--feature-gates=ClusterClaim=false"))
-			util.AssertKlusterletCondition(klusterlet.Name, operatorClient, helpers.RegistrationFeatureGatesValid,
-				helpers.FeatureGatesReasonAllValid, metav1.ConditionTrue)
 
 			ginkgo.By("Check the work-agent has the expected feature gates")
 			workDeployment, err := kubeClient.AppsV1().Deployments(klusterletNamespace).Get(
@@ -1095,8 +1037,92 @@ var _ = ginkgo.Describe("Klusterlet", func() {
 			gomega.Expect(err).ToNot(gomega.HaveOccurred())
 			gomega.Expect(workDeployment.Spec.Template.Spec.Containers[0].Args).Should(
 				gomega.ContainElement("--feature-gates=ExecutorValidatingCaches=true"))
-			util.AssertKlusterletCondition(klusterlet.Name, operatorClient, helpers.WorkFeatureGatesValid,
-				helpers.FeatureGatesReasonAllValid, metav1.ConditionTrue)
+		})
+
+		ginkgo.It("has invalid feature gates", func() {
+			klusterlet.Spec.RegistrationConfiguration = &operatorapiv1.RegistrationConfiguration{
+				FeatureGates: []operatorapiv1.FeatureGate{
+					{
+						Feature: "Foo",
+						Mode:    operatorapiv1.FeatureGateModeTypeDisable,
+					},
+					{
+						Feature: string(ocmfeature.ClusterClaim),
+						Mode:    operatorapiv1.FeatureGateModeTypeDisable,
+					},
+				},
+			}
+			klusterlet.Spec.WorkConfiguration = &operatorapiv1.WorkConfiguration{
+				FeatureGates: []operatorapiv1.FeatureGate{
+					{
+						Feature: "Bar",
+						Mode:    operatorapiv1.FeatureGateModeTypeEnable,
+					},
+					{
+						Feature: string(ocmfeature.ExecutorValidatingCaches),
+						Mode:    operatorapiv1.FeatureGateModeTypeEnable,
+					},
+				},
+			}
+
+			ginkgo.By("Create the klusterlet with invalid RegistrationConfiguration and WorkConfiguration")
+			_, err := operatorClient.OperatorV1().Klusterlets().Create(context.Background(),
+				klusterlet, metav1.CreateOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			ginkgo.By("Create a bootstrap secret and make sure the kubeconfig can work")
+			bootStrapSecret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      helpers.BootstrapHubKubeConfig,
+					Namespace: klusterletNamespace,
+				},
+				Data: map[string][]byte{
+					"kubeconfig": util.NewKubeConfig(restConfig),
+				},
+			}
+			_, err = kubeClient.CoreV1().Secrets(klusterletNamespace).Create(context.Background(),
+				bootStrapSecret, metav1.CreateOptions{})
+			gomega.Expect(err).ToNot(gomega.HaveOccurred())
+
+			hubSecret, err := kubeClient.CoreV1().Secrets(klusterletNamespace).Get(context.Background(),
+				helpers.HubKubeConfig, metav1.GetOptions{})
+			gomega.Expect(err).ToNot(gomega.HaveOccurred())
+
+			ginkgo.By("Update hub secret and make sure the kubeconfig can work")
+			hubSecret = hubSecret.DeepCopy()
+			hubSecret.Data["cluster-name"] = []byte("testcluster")
+			hubSecret.Data["kubeconfig"] = util.NewKubeConfig(restConfig)
+			_, err = kubeClient.CoreV1().Secrets(klusterletNamespace).Update(context.Background(),
+				hubSecret, metav1.UpdateOptions{})
+			gomega.Expect(err).ToNot(gomega.HaveOccurred())
+
+			util.AssertKlusterletCondition(klusterlet.Name, operatorClient,
+				"HubConnectionDegraded", "HubConnectionFunctional", metav1.ConditionFalse)
+			util.AssertKlusterletCondition(klusterlet.Name, operatorClient,
+				"RegistrationDesiredDegraded", "UnavailablePods", metav1.ConditionTrue)
+			util.AssertKlusterletCondition(klusterlet.Name, operatorClient,
+				"WorkDesiredDegraded", "UnavailablePods", metav1.ConditionTrue)
+
+			util.AssertKlusterletCondition(klusterlet.Name, operatorClient, helpers.FeatureGatesTypeValid,
+				helpers.FeatureGatesReasonInvalidExisting, metav1.ConditionFalse)
+
+			ginkgo.By("Check the registration-agent only have the valid feature gates")
+			registrationDeployment, err := kubeClient.AppsV1().Deployments(klusterletNamespace).Get(
+				context.Background(), registrationDeploymentName, metav1.GetOptions{})
+			gomega.Expect(err).ToNot(gomega.HaveOccurred())
+			gomega.Expect(registrationDeployment.Spec.Template.Spec.Containers[0].Args).Should(
+				gomega.ContainElement("--feature-gates=ClusterClaim=false"))
+			gomega.Expect(registrationDeployment.Spec.Template.Spec.Containers[0].Args).ShouldNot(
+				gomega.ContainElement("--feature-gates=Foo=false"))
+
+			ginkgo.By("Check the work-agent only have the valid feature gates")
+			workDeployment, err := kubeClient.AppsV1().Deployments(klusterletNamespace).Get(
+				context.Background(), workDeploymentName, metav1.GetOptions{})
+			gomega.Expect(err).ToNot(gomega.HaveOccurred())
+			gomega.Expect(workDeployment.Spec.Template.Spec.Containers[0].Args).Should(
+				gomega.ContainElement("--feature-gates=ExecutorValidatingCaches=true"))
+			gomega.Expect(workDeployment.Spec.Template.Spec.Containers[0].Args).ShouldNot(
+				gomega.ContainElement("--feature-gates=Bar=true"))
 		})
 	})
 })

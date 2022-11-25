@@ -524,9 +524,7 @@ var _ = ginkgo.Describe("ClusterManager Default Mode", func() {
 			}, eventuallyTimeout, eventuallyInterval).Should(gomega.BeNil())
 
 			util.AssertClusterManagerCondition(clusterManagerName, operatorClient,
-				helpers.RegistrationFeatureGatesValid, helpers.FeatureGatesReasonNil, metav1.ConditionTrue)
-			util.AssertClusterManagerCondition(clusterManagerName, operatorClient,
-				helpers.WorkFeatureGatesValid, helpers.FeatureGatesReasonAllValid, metav1.ConditionTrue)
+				helpers.FeatureGatesTypeValid, helpers.FeatureGatesReasonAllValid, metav1.ConditionTrue)
 
 			registrationDeployment, err := kubeClient.AppsV1().Deployments(hubNamespace).Get(context.Background(),
 				hubRegistrationDeployment, metav1.GetOptions{})

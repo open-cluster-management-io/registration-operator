@@ -515,8 +515,7 @@ func TestSyncDeploy(t *testing.T) {
 	testinghelper.AssertOnlyConditions(
 		t, operatorAction[1].(clienttesting.UpdateActionImpl).Object,
 		testinghelper.NamedCondition(klusterletApplied, "KlusterletApplied", metav1.ConditionTrue),
-		testinghelper.NamedCondition(helpers.RegistrationFeatureGatesValid, helpers.FeatureGatesReasonAllValid, metav1.ConditionTrue),
-		testinghelper.NamedCondition(helpers.WorkFeatureGatesValid, helpers.FeatureGatesReasonNil, metav1.ConditionTrue),
+		testinghelper.NamedCondition(helpers.FeatureGatesTypeValid, helpers.FeatureGatesReasonAllValid, metav1.ConditionTrue),
 	)
 }
 
@@ -618,13 +617,11 @@ func TestSyncDeployHosted(t *testing.T) {
 
 	conditionReady := testinghelper.NamedCondition(klusterletReadyToApply, "KlusterletPrepared", metav1.ConditionTrue)
 	conditionApplied := testinghelper.NamedCondition(klusterletApplied, "KlusterletApplied", metav1.ConditionTrue)
-	registrationConditionFeaturesValid := testinghelper.NamedCondition(
-		helpers.RegistrationFeatureGatesValid, helpers.FeatureGatesReasonAllValid, metav1.ConditionTrue)
-	workConditionFeaturesValid := testinghelper.NamedCondition(
-		helpers.WorkFeatureGatesValid, helpers.FeatureGatesReasonNil, metav1.ConditionTrue)
+	conditionFeaturesValid := testinghelper.NamedCondition(
+		helpers.FeatureGatesTypeValid, helpers.FeatureGatesReasonAllValid, metav1.ConditionTrue)
 	testinghelper.AssertOnlyConditions(
 		t, operatorAction[2].(clienttesting.UpdateActionImpl).Object, conditionReady, conditionApplied,
-		registrationConditionFeaturesValid, workConditionFeaturesValid)
+		conditionFeaturesValid)
 }
 
 func TestSyncDeployHostedCreateAgentNamespace(t *testing.T) {
@@ -933,8 +930,7 @@ func TestDeployOnKube111(t *testing.T) {
 	testinghelper.AssertOnlyConditions(
 		t, operatorAction[1].(clienttesting.UpdateActionImpl).Object,
 		testinghelper.NamedCondition(klusterletApplied, "KlusterletApplied", metav1.ConditionTrue),
-		testinghelper.NamedCondition(helpers.RegistrationFeatureGatesValid, helpers.FeatureGatesReasonAllValid, metav1.ConditionTrue),
-		testinghelper.NamedCondition(helpers.WorkFeatureGatesValid, helpers.FeatureGatesReasonNil, metav1.ConditionTrue),
+		testinghelper.NamedCondition(helpers.FeatureGatesTypeValid, helpers.FeatureGatesReasonAllValid, metav1.ConditionTrue),
 	)
 
 	// Delete the klusterlet

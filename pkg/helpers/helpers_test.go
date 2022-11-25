@@ -1779,7 +1779,7 @@ func TestFeatureGatesArgs(t *testing.T) {
 
 	for _, tc := range tt {
 		t.Run(tc.name, func(t *testing.T) {
-			output1, output2 := FeatureGatesArgs(tc.inputFeatureGates, tc.component)
+			output1, output2 := featureGatesArgs(tc.inputFeatureGates, tc.component)
 			if len(output1) == len(tc.expect1) && len(output2) == len(tc.expect2) {
 				return
 			}
