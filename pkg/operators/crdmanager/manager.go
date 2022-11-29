@@ -2,13 +2,14 @@ package crdmanager
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/openshift/library-go/pkg/operator/resource/resourceapply"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apiextensionsv1beta1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
-	"k8s.io/apimachinery/pkg/api/errors"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -37,8 +38,7 @@ type CRD interface {
 	*apiextensionsv1.CustomResourceDefinition | *apiextensionsv1beta1.CustomResourceDefinition
 }
 
-type manager[T CRD] struct {
-	crds   map[string]T
+type Manager[T CRD] struct {
 	client crdClient[T]
 }
 
@@ -57,13 +57,52 @@ func (r *RemainingCRDError) Error() string {
 	return fmt.Sprintf("Thera are still reaming CRDs: %s", strings.Join(r.RemainingCRDs, ","))
 }
 
-func NewManager[T CRD](client crdClient[T], manifests resourceapply.AssetFunc, files ...string) (*manager[T], error) {
-	manager := &manager[T]{
-		crds:   map[string]T{},
+func NewManager[T CRD](client crdClient[T]) *Manager[T] {
+	manager := &Manager[T]{
 		client: client,
 	}
 
+	return manager
+}
+
+func (m *Manager[T]) CleanOne(ctx context.Context, name string, skip bool) error {
+	// remove version label if skip clean
+	if skip {
+		existing, err := m.client.Get(ctx, name, metav1.GetOptions{})
+		switch {
+		case apierrors.IsNotFound(err):
+			return nil
+		case err != nil:
+			return err
+		}
+		accessor, err := meta.Accessor(existing)
+		if err != nil {
+			return err
+		}
+		labels := accessor.GetLabels()
+		if _, ok := labels[versionLabelKey]; ok {
+			delete(labels, versionLabelKey)
+		}
+		accessor.SetLabels(labels)
+		_, err = m.client.Update(ctx, existing, metav1.UpdateOptions{})
+		return err
+	}
+
+	err := m.client.Delete(ctx, name, metav1.DeleteOptions{})
+	switch {
+	case apierrors.IsNotFound(err):
+		return nil
+	case err == nil:
+		return &RemainingCRDError{RemainingCRDs: []string{name}}
+	}
+
+	return err
+}
+
+func (m *Manager[T]) Clean(ctx context.Context, skip bool, manifests resourceapply.AssetFunc, files ...string) error {
 	var errs []error
+	var remainingCRDs []string
+
 	for _, file := range files {
 		objBytes, err := manifests(file)
 		if err != nil {
@@ -71,9 +110,6 @@ func NewManager[T CRD](client crdClient[T], manifests resourceapply.AssetFunc, f
 			continue
 		}
 
-		// apply v1beta1 crd if the object is crd v1beta1, we need to do this by using dynamic client
-		// since the v1beta1 schema has been removed in kube 1.23.
-		// TODO remove this logic after we do not support spoke with version lowner than 1.16
 		requiredObj, _, err := genericCodec.Decode(objBytes, nil, nil)
 		if err != nil {
 			errs = append(errs, err)
@@ -82,27 +118,15 @@ func NewManager[T CRD](client crdClient[T], manifests resourceapply.AssetFunc, f
 
 		accessor, err := meta.Accessor(requiredObj)
 		if err != nil {
-			errs = append(errs, err)
-			continue
+			return err
 		}
 
-		manager.crds[accessor.GetName()] = requiredObj.(T)
-	}
-
-	return manager, utilerrors.NewAggregate(errs)
-}
-
-func (m *manager[T]) Clean(ctx context.Context) error {
-	var errs []error
-	var remainingCRDs []string
-	for name := range m.crds {
-		err := m.client.Delete(ctx, name, metav1.DeleteOptions{})
+		err = m.CleanOne(ctx, accessor.GetName(), skip)
+		var remainingErr *RemainingCRDError
 		switch {
-		case errors.IsNotFound(err):
-			continue
-		case err == nil:
-			remainingCRDs = append(remainingCRDs, name)
-		default:
+		case errors.As(err, &remainingErr):
+			remainingCRDs = append(remainingCRDs, accessor.GetName())
+		case err != nil:
 			errs = append(errs, err)
 		}
 	}
@@ -117,10 +141,23 @@ func (m *manager[T]) Clean(ctx context.Context) error {
 	return nil
 }
 
-func (m *manager[T]) Apply(ctx context.Context) error {
+func (m *Manager[T]) Apply(ctx context.Context, manifests resourceapply.AssetFunc, files ...string) error {
 	var errs []error
-	for name, crd := range m.crds {
-		err := m.ApplyOne(ctx, name, crd)
+
+	for _, file := range files {
+		objBytes, err := manifests(file)
+		if err != nil {
+			errs = append(errs, err)
+			continue
+		}
+
+		requiredObj, _, err := genericCodec.Decode(objBytes, nil, nil)
+		if err != nil {
+			errs = append(errs, err)
+			continue
+		}
+
+		err = m.applyOne(ctx, requiredObj.(T))
 		if err != nil {
 			errs = append(errs, err)
 		}
@@ -129,11 +166,15 @@ func (m *manager[T]) Apply(ctx context.Context) error {
 	return utilerrors.NewAggregate(errs)
 }
 
-func (m *manager[T]) ApplyOne(ctx context.Context, name string, required T) error {
-	existing, err := m.client.Get(ctx, name, metav1.GetOptions{})
-	if errors.IsNotFound(err) {
+func (m *Manager[T]) applyOne(ctx context.Context, required T) error {
+	accessor, err := meta.Accessor(required)
+	if err != nil {
+		return err
+	}
+	existing, err := m.client.Get(ctx, accessor.GetName(), metav1.GetOptions{})
+	if apierrors.IsNotFound(err) {
 		_, err := m.client.Create(ctx, required, metav1.CreateOptions{})
-		klog.Infof("crd %s is created", name)
+		klog.Infof("crd %s is created", accessor.GetName())
 		return err
 	}
 	if err != nil {
@@ -141,13 +182,13 @@ func (m *manager[T]) ApplyOne(ctx context.Context, name string, required T) erro
 	}
 
 	// if existingVersion is higher than the required version, do not update crd.
-	accessor, err := meta.Accessor(existing)
+	accessor, err = meta.Accessor(existing)
 	if err != nil {
 		return err
 	}
-	existingVersion := accessor.GetLabels()[versionLabelKey]
+	existingVersion, ok := accessor.GetLabels()[versionLabelKey]
 	requiredVersion := version.Get().GitVersion
-	if versionutil.CompareKubeAwareVersionStrings(requiredVersion, existingVersion) <= 0 {
+	if ok && versionutil.CompareKubeAwareVersionStrings(requiredVersion, existingVersion) <= 0 {
 		return nil
 	}
 
@@ -157,6 +198,9 @@ func (m *manager[T]) ApplyOne(ctx context.Context, name string, required T) erro
 	}
 
 	labels := requiredAccessor.GetLabels()
+	if labels == nil {
+		labels = map[string]string{}
+	}
 	labels[versionLabelKey] = requiredVersion
 	requiredAccessor.SetLabels(labels)
 	requiredAccessor.SetResourceVersion(accessor.GetResourceVersion())
@@ -166,7 +210,7 @@ func (m *manager[T]) ApplyOne(ctx context.Context, name string, required T) erro
 		return err
 	}
 
-	klog.Infof("crd %s is updated to version %s", name, requiredVersion)
+	klog.Infof("crd %s is updated to version %s", accessor.GetName(), requiredVersion)
 
 	return nil
 }

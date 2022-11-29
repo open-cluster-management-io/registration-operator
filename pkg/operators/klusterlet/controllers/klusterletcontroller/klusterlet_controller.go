@@ -64,6 +64,7 @@ type klusterletController struct {
 
 type klusterletReconcile interface {
 	reconcile(ctx context.Context, cm *operatorapiv1.Klusterlet, config klusterletConfig) (*operatorapiv1.Klusterlet, reconcileState, error)
+	clean(ctx context.Context, cm *operatorapiv1.Klusterlet, config klusterletConfig) (*operatorapiv1.Klusterlet, reconcileState, error)
 }
 
 type reconcileState int64
@@ -227,7 +228,7 @@ func (n *klusterletController) sync(ctx context.Context, controllerContext facto
 		return nil
 	}
 
-	if !readyToOperateManagedClusterResources(klusterlet, config.InstallMode) {
+	if !readyToOperateManagedClusterResources(klusterlet) {
 		// wait for the external managed kubeconfig to exist to apply resources on the manged cluster
 		return nil
 	}
@@ -304,8 +305,8 @@ func (n *klusterletController) sync(ctx context.Context, controllerContext facto
 	return nil
 }
 
-func readyToOperateManagedClusterResources(klusterlet *operatorapiv1.Klusterlet, mode operatorapiv1.InstallMode) bool {
-	if mode != operatorapiv1.InstallModeHosted {
+func readyToOperateManagedClusterResources(klusterlet *operatorapiv1.Klusterlet) bool {
+	if klusterlet.Spec.DeployOption.Mode != operatorapiv1.InstallModeHosted {
 		return true
 	}
 
