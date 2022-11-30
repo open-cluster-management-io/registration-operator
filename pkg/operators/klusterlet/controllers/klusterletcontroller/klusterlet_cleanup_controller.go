@@ -28,20 +28,12 @@ import (
 )
 
 type klusterletCleanupController struct {
-	klusterletClient          operatorv1client.KlusterletInterface
-	klusterletLister          operatorlister.KlusterletLister
-	kubeClient                kubernetes.Interface
-	apiExtensionClient        apiextensionsclient.Interface
-	appliedManifestWorkClient workv1client.AppliedManifestWorkInterface
-	kubeVersion               *version.Version
-	operatorNamespace         string
-
-	// buildManagedClusterClientsHostedMode build clients for the managed cluster in hosted mode,
-	// this can be overridden for testing
-	buildManagedClusterClientsHostedMode func(
-		ctx context.Context,
-		kubeClient kubernetes.Interface,
-		namespace, secret string) (*managedClusterClients, error)
+	klusterletClient             operatorv1client.KlusterletInterface
+	klusterletLister             operatorlister.KlusterletLister
+	kubeClient                   kubernetes.Interface
+	kubeVersion                  *version.Version
+	operatorNamespace            string
+	managedClusterClientsBuilder managedClusterClientsBuilderInterface
 }
 
 // NewKlusterletCleanupController construct klusterlet cleanup controller
@@ -57,14 +49,12 @@ func NewKlusterletCleanupController(
 	operatorNamespace string,
 	recorder events.Recorder) factory.Controller {
 	controller := &klusterletCleanupController{
-		kubeClient:                           kubeClient,
-		apiExtensionClient:                   apiExtensionClient,
-		klusterletClient:                     klusterletClient,
-		klusterletLister:                     klusterletInformer.Lister(),
-		appliedManifestWorkClient:            appliedManifestWorkClient,
-		kubeVersion:                          kubeVersion,
-		operatorNamespace:                    operatorNamespace,
-		buildManagedClusterClientsHostedMode: buildManagedClusterClientsFromSecret,
+		kubeClient:                   kubeClient,
+		klusterletClient:             klusterletClient,
+		klusterletLister:             klusterletInformer.Lister(),
+		kubeVersion:                  kubeVersion,
+		operatorNamespace:            operatorNamespace,
+		managedClusterClientsBuilder: newManagedClusterClientsBuilder(kubeClient, apiExtensionClient, appliedManifestWorkClient),
 	}
 
 	return factory.New().WithSync(controller.sync).
@@ -127,35 +117,24 @@ func (n *klusterletCleanupController) sync(ctx context.Context, controllerContex
 		HubApiServerHostAlias:                       klusterlet.Spec.HubApiServerHostAlias,
 	}
 
-	managedClusterClients := &managedClusterClients{
-		kubeClient:                n.kubeClient,
-		apiExtensionClient:        n.apiExtensionClient,
-		appliedManifestWorkClient: n.appliedManifestWorkClient,
-	}
-	if installMode == operatorapiv1.InstallModeHosted {
-		managedClusterClients, err = n.buildManagedClusterClientsHostedMode(ctx,
-			n.kubeClient, config.AgentNamespace, config.ExternalManagedKubeConfigSecret)
-		if err != nil {
-			return err
-		}
-	}
-
 	reconcilers := []klusterletReconcile{
 		&runtimeReconcile{
-			managedClusterClients: managedClusterClients,
-			kubeClient:            n.kubeClient,
-			recorder:              controllerContext.Recorder(),
+			kubeClient: n.kubeClient,
+			recorder:   controllerContext.Recorder(),
 		},
 	}
 
 	// Add other reconcilers only when managed cluster is ready to manage.
-	if readyToOperateManagedClusterResources(klusterlet) {
-		if installMode == operatorapiv1.InstallModeHosted {
-			managedClusterClients, err = n.buildManagedClusterClientsHostedMode(ctx,
-				n.kubeClient, config.AgentNamespace, config.ExternalManagedKubeConfigSecret)
-			if err != nil {
-				return err
-			}
+	// we should clean managedcluster resource when
+	// 1. install mode is not hosted
+	// 2. install mode is hosted and some resources has been applied on managed cluster (if hosted finalizer exists)
+	if installMode != operatorapiv1.InstallModeHosted || hasFinalizer(klusterlet, klusterletHostedFinalizer) {
+		managedClusterClients, err := n.managedClusterClientsBuilder.
+			withMode(config.InstallMode).
+			withKubeConfigSecret(config.AgentNamespace, config.ExternalManagedKubeConfigSecret).
+			build(ctx)
+		if err != nil {
+			return err
 		}
 
 		reconcilers = append(reconcilers,
@@ -173,7 +152,7 @@ func (n *klusterletCleanupController) sync(ctx context.Context, controllerContex
 			},
 		)
 	}
-	// managementReconcile should be added as the last one, since we finally need to remove namespace hosting agent.
+	// managementReconcile should be added as the last one, since we finally need to remove agent namespace.
 	reconcilers = append(reconcilers, &managementReconcile{
 		kubeClient:        n.kubeClient,
 		operatorNamespace: n.operatorNamespace,
@@ -224,6 +203,8 @@ func (n *klusterletCleanupController) removeKlusterletFinalizers(ctx context.Con
 	return nil
 }
 
+// readyToAddHostedFinalizer checkes whether the hosted finalizer should be added.
+// It is only added when mode is hosted, and some resources have been applied to the managed cluster.
 func readyToAddHostedFinalizer(klusterlet *operatorapiv1.Klusterlet, mode operatorapiv1.InstallMode) bool {
 	if mode != operatorapiv1.InstallModeHosted {
 		return false

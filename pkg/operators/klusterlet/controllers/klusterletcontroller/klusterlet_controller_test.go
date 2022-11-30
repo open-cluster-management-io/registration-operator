@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"k8s.io/client-go/rest"
 	"strings"
 	"testing"
 	"time"
@@ -19,9 +20,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/apimachinery/pkg/util/version"
-	"k8s.io/client-go/kubernetes"
 	fakekube "k8s.io/client-go/kubernetes/fake"
-	"k8s.io/client-go/rest"
 	clienttesting "k8s.io/client-go/testing"
 	"k8s.io/client-go/tools/cache"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
@@ -158,24 +157,22 @@ func newTestController(t *testing.T, klusterlet *operatorapiv1.Klusterlet, appli
 	kubeVersion, _ := version.ParseGeneric("v1.18.0")
 
 	hubController := &klusterletController{
-		klusterletClient:          fakeOperatorClient.OperatorV1().Klusterlets(),
-		kubeClient:                fakeKubeClient,
-		apiExtensionClient:        fakeAPIExtensionClient,
-		appliedManifestWorkClient: fakeWorkClient.WorkV1().AppliedManifestWorks(),
-		klusterletLister:          operatorInformers.Operator().V1().Klusterlets().Lister(),
-		kubeVersion:               kubeVersion,
-		operatorNamespace:         "open-cluster-management",
-		cache:                     resourceapply.NewResourceCache(),
+		klusterletClient:             fakeOperatorClient.OperatorV1().Klusterlets(),
+		kubeClient:                   fakeKubeClient,
+		klusterletLister:             operatorInformers.Operator().V1().Klusterlets().Lister(),
+		kubeVersion:                  kubeVersion,
+		operatorNamespace:            "open-cluster-management",
+		cache:                        resourceapply.NewResourceCache(),
+		managedClusterClientsBuilder: newManagedClusterClientsBuilder(fakeKubeClient, fakeAPIExtensionClient, fakeWorkClient.WorkV1().AppliedManifestWorks()),
 	}
 
 	cleanupController := &klusterletCleanupController{
-		klusterletClient:          fakeOperatorClient.OperatorV1().Klusterlets(),
-		kubeClient:                fakeKubeClient,
-		apiExtensionClient:        fakeAPIExtensionClient,
-		appliedManifestWorkClient: fakeWorkClient.WorkV1().AppliedManifestWorks(),
-		klusterletLister:          operatorInformers.Operator().V1().Klusterlets().Lister(),
-		kubeVersion:               kubeVersion,
-		operatorNamespace:         "open-cluster-management",
+		klusterletClient:             fakeOperatorClient.OperatorV1().Klusterlets(),
+		kubeClient:                   fakeKubeClient,
+		klusterletLister:             operatorInformers.Operator().V1().Klusterlets().Lister(),
+		kubeVersion:                  kubeVersion,
+		operatorNamespace:            "open-cluster-management",
+		managedClusterClientsBuilder: newManagedClusterClientsBuilder(fakeKubeClient, fakeAPIExtensionClient, fakeWorkClient.WorkV1().AppliedManifestWorks()),
 	}
 
 	store := operatorInformers.Operator().V1().Klusterlets().Informer().GetStore()
@@ -248,43 +245,30 @@ func newTestControllerHosted(t *testing.T, klusterlet *operatorapiv1.Klusterlet,
 
 	fakeManagedAPIExtensionClient := fakeapiextensions.NewSimpleClientset()
 	fakeManagedWorkClient := fakeworkclient.NewSimpleClientset(appliedManifestWorks...)
-	defaultBuildManagedClusterClientsHostedModeFn := func(
-		ctx context.Context,
-		kubeClient kubernetes.Interface,
-		namespace,
-		secret string) (*managedClusterClients, error) {
-		return &managedClusterClients{
-			kubeClient:                fakeManagedKubeClient,
-			apiExtensionClient:        fakeManagedAPIExtensionClient,
-			appliedManifestWorkClient: fakeManagedWorkClient.WorkV1().AppliedManifestWorks(),
-			kubeconfig: &rest.Config{
-				Host: "testhost",
-				TLSClientConfig: rest.TLSClientConfig{
-					CAData: []byte("test"),
-				},
-			},
-		}, nil
-	}
 	hubController := &klusterletController{
-		klusterletClient:                     fakeOperatorClient.OperatorV1().Klusterlets(),
-		kubeClient:                           fakeKubeClient,
-		apiExtensionClient:                   fakeAPIExtensionClient,
-		appliedManifestWorkClient:            fakeWorkClient.WorkV1().AppliedManifestWorks(),
-		klusterletLister:                     operatorInformers.Operator().V1().Klusterlets().Lister(),
-		kubeVersion:                          kubeVersion,
-		operatorNamespace:                    "open-cluster-management",
-		cache:                                resourceapply.NewResourceCache(),
-		buildManagedClusterClientsHostedMode: defaultBuildManagedClusterClientsHostedModeFn,
+		klusterletClient:  fakeOperatorClient.OperatorV1().Klusterlets(),
+		kubeClient:        fakeKubeClient,
+		klusterletLister:  operatorInformers.Operator().V1().Klusterlets().Lister(),
+		kubeVersion:       kubeVersion,
+		operatorNamespace: "open-cluster-management",
+		cache:             resourceapply.NewResourceCache(),
+		managedClusterClientsBuilder: &fakeManagedClusterBuilder{
+			fakeWorkClient:         fakeManagedWorkClient,
+			fakeAPIExtensionClient: fakeManagedAPIExtensionClient,
+			fakeKubeClient:         fakeManagedKubeClient,
+		},
 	}
 	cleanupController := &klusterletCleanupController{
-		klusterletClient:                     fakeOperatorClient.OperatorV1().Klusterlets(),
-		kubeClient:                           fakeKubeClient,
-		apiExtensionClient:                   fakeAPIExtensionClient,
-		appliedManifestWorkClient:            fakeWorkClient.WorkV1().AppliedManifestWorks(),
-		klusterletLister:                     operatorInformers.Operator().V1().Klusterlets().Lister(),
-		kubeVersion:                          kubeVersion,
-		operatorNamespace:                    "open-cluster-management",
-		buildManagedClusterClientsHostedMode: defaultBuildManagedClusterClientsHostedModeFn,
+		klusterletClient:  fakeOperatorClient.OperatorV1().Klusterlets(),
+		kubeClient:        fakeKubeClient,
+		klusterletLister:  operatorInformers.Operator().V1().Klusterlets().Lister(),
+		kubeVersion:       kubeVersion,
+		operatorNamespace: "open-cluster-management",
+		managedClusterClientsBuilder: &fakeManagedClusterBuilder{
+			fakeWorkClient:         fakeManagedWorkClient,
+			fakeAPIExtensionClient: fakeManagedAPIExtensionClient,
+			fakeKubeClient:         fakeManagedKubeClient,
+		},
 	}
 
 	store := operatorInformers.Operator().V1().Klusterlets().Informer().GetStore()
@@ -307,10 +291,12 @@ func newTestControllerHosted(t *testing.T, klusterlet *operatorapiv1.Klusterlet,
 	}
 }
 
-func (c *testController) setBuildManagedClusterClientsHostedModeFunc(
-	f func(ctx context.Context, kubeClient kubernetes.Interface, namespace, secret string) (
-		*managedClusterClients, error)) *testController {
-	c.controller.buildManagedClusterClientsHostedMode = f
+func (c *testController) setDefaultManagedClusterClientsBuilder() *testController {
+	c.controller.managedClusterClientsBuilder = newManagedClusterClientsBuilder(
+		c.kubeClient,
+		c.apiExtensionClient,
+		c.workClient.WorkV1().AppliedManifestWorks(),
+	)
 	return c
 }
 
@@ -618,8 +604,7 @@ func TestSyncDeployHosted(t *testing.T) {
 
 func TestSyncDeployHostedCreateAgentNamespace(t *testing.T) {
 	klusterlet := newKlusterletHosted("klusterlet", "testns", "cluster1")
-	controller := newTestControllerHosted(t, klusterlet, nil).
-		setBuildManagedClusterClientsHostedModeFunc(buildManagedClusterClientsFromSecret)
+	controller := newTestControllerHosted(t, klusterlet, nil).setDefaultManagedClusterClientsBuilder()
 	syncContext := testinghelper.NewFakeSyncContext(t, "klusterlet")
 
 	err := controller.controller.sync(context.TODO(), syncContext)
@@ -968,4 +953,32 @@ func newAppliedManifestWorks(host string, finalizers []string, terminated bool) 
 	}
 
 	return w
+}
+
+type fakeManagedClusterBuilder struct {
+	fakeKubeClient         *fakekube.Clientset
+	fakeAPIExtensionClient *fakeapiextensions.Clientset
+	fakeWorkClient         *fakeworkclient.Clientset
+}
+
+func (f *fakeManagedClusterBuilder) withMode(mode operatorapiv1.InstallMode) managedClusterClientsBuilderInterface {
+	return f
+}
+
+func (f *fakeManagedClusterBuilder) withKubeConfigSecret(namespace, name string) managedClusterClientsBuilderInterface {
+	return f
+}
+
+func (m *fakeManagedClusterBuilder) build(ctx context.Context) (*managedClusterClients, error) {
+	return &managedClusterClients{
+		kubeClient:                m.fakeKubeClient,
+		apiExtensionClient:        m.fakeAPIExtensionClient,
+		appliedManifestWorkClient: m.fakeWorkClient.WorkV1().AppliedManifestWorks(),
+		kubeconfig: &rest.Config{
+			Host: "testhost",
+			TLSClientConfig: rest.TLSClientConfig{
+				CAData: []byte("test"),
+			},
+		},
+	}, nil
 }
