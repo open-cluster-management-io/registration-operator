@@ -297,6 +297,11 @@ func (c *testController) setDefaultManagedClusterClientsBuilder() *testControlle
 		c.apiExtensionClient,
 		c.workClient.WorkV1().AppliedManifestWorks(),
 	)
+	c.cleanupController.managedClusterClientsBuilder = newManagedClusterClientsBuilder(
+		c.kubeClient,
+		c.apiExtensionClient,
+		c.workClient.WorkV1().AppliedManifestWorks(),
+	)
 	return c
 }
 
@@ -604,6 +609,10 @@ func TestSyncDeployHosted(t *testing.T) {
 
 func TestSyncDeployHostedCreateAgentNamespace(t *testing.T) {
 	klusterlet := newKlusterletHosted("klusterlet", "testns", "cluster1")
+	meta.SetStatusCondition(&klusterlet.Status.Conditions, metav1.Condition{
+		Type: klusterletReadyToApply, Status: metav1.ConditionFalse, Reason: "KlusterletPrepareFailed",
+		Message: fmt.Sprintf("Failed to build managed cluster clients: secrets \"external-managed-kubeconfig\" not found"),
+	})
 	controller := newTestControllerHosted(t, klusterlet, nil).setDefaultManagedClusterClientsBuilder()
 	syncContext := testinghelper.NewFakeSyncContext(t, "klusterlet")
 

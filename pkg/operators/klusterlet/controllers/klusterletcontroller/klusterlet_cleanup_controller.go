@@ -79,14 +79,13 @@ func (n *klusterletCleanupController) sync(ctx context.Context, controllerContex
 		return err
 	}
 	klusterlet = klusterlet.DeepCopy()
-	installMode := klusterlet.Spec.DeployOption.Mode
 
 	if klusterlet.DeletionTimestamp.IsZero() {
 		if !hasFinalizer(klusterlet, klusterletFinalizer) {
 			return n.addFinalizer(ctx, klusterlet, klusterletFinalizer)
 		}
 
-		if !hasFinalizer(klusterlet, klusterletHostedFinalizer) && readyToAddHostedFinalizer(klusterlet, installMode) {
+		if !hasFinalizer(klusterlet, klusterletHostedFinalizer) && readyToAddHostedFinalizer(klusterlet, klusterlet.Spec.DeployOption.Mode) {
 			// the external managed kubeconfig secret is ready, there will be some resources applied on the managed
 			// cluster, add hosted finalizer here to indicate these resources should be cleaned up when deleting the
 			// klusterlet
@@ -113,7 +112,7 @@ func (n *klusterletCleanupController) sync(ctx context.Context, controllerContex
 		ExternalManagedKubeConfigSecret:             helpers.ExternalManagedKubeConfig,
 		ExternalManagedKubeConfigRegistrationSecret: helpers.ExternalManagedKubeConfigRegistration,
 		ExternalManagedKubeConfigWorkSecret:         helpers.ExternalManagedKubeConfigWork,
-		InstallMode:                                 installMode,
+		InstallMode:                                 klusterlet.Spec.DeployOption.Mode,
 		HubApiServerHostAlias:                       klusterlet.Spec.HubApiServerHostAlias,
 	}
 
@@ -128,11 +127,17 @@ func (n *klusterletCleanupController) sync(ctx context.Context, controllerContex
 	// we should clean managedcluster resource when
 	// 1. install mode is not hosted
 	// 2. install mode is hosted and some resources has been applied on managed cluster (if hosted finalizer exists)
-	if installMode != operatorapiv1.InstallModeHosted || hasFinalizer(klusterlet, klusterletHostedFinalizer) {
+	if config.InstallMode != operatorapiv1.InstallModeHosted || hasFinalizer(klusterlet, klusterletHostedFinalizer) {
 		managedClusterClients, err := n.managedClusterClientsBuilder.
 			withMode(config.InstallMode).
 			withKubeConfigSecret(config.AgentNamespace, config.ExternalManagedKubeConfigSecret).
 			build(ctx)
+
+		// stop when hosted kubeconfig is not found. the klustelet controller will monitor the secret and retrigger
+		// reconcilation of cleanup controller when secret is created again.
+		if errors.IsNotFound(err) {
+			return nil
+		}
 		if err != nil {
 			return err
 		}

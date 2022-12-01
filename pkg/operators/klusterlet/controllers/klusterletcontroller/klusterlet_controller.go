@@ -175,6 +175,7 @@ func (n *klusterletController) sync(ctx context.Context, controllerContext facto
 		build(ctx)
 
 	// update klusterletReadyToApply condition at first in hosted mode
+	// this conditions should be updated even when klusterlet is in deleteing state.
 	if config.InstallMode == operatorapiv1.InstallModeHosted {
 		cond := metav1.Condition{
 			Type: klusterletReadyToApply, Status: metav1.ConditionTrue, Reason: "KlusterletPrepared",
@@ -315,9 +316,7 @@ func ensureAgentNamespace(ctx context.Context, kubeClient kubernetes.Interface, 
 				},
 			},
 		}, metav1.CreateOptions{})
-		if createErr != nil {
-			return createErr
-		}
+		return createErr
 	}
 	return err
 }
@@ -357,12 +356,11 @@ func ensureNamespace(ctx context.Context, kubeClient kubernetes.Interface, klust
 				},
 			},
 		}, metav1.CreateOptions{})
-		if createErr != nil {
-			meta.SetStatusCondition(&klusterlet.Status.Conditions, metav1.Condition{
-				Type: klusterletApplied, Status: metav1.ConditionFalse, Reason: "KlusterletApplyFailed",
-				Message: fmt.Sprintf("Failed to create namespace %q: %v", namespace, createErr)})
-			return createErr
-		}
+		meta.SetStatusCondition(&klusterlet.Status.Conditions, metav1.Condition{
+			Type: klusterletApplied, Status: metav1.ConditionFalse, Reason: "KlusterletApplyFailed",
+			Message: fmt.Sprintf("Failed to create namespace %q: %v", namespace, createErr)})
+		return createErr
+
 	case err != nil:
 		meta.SetStatusCondition(&klusterlet.Status.Conditions, metav1.Condition{
 			Type: klusterletApplied, Status: metav1.ConditionFalse, Reason: "KlusterletApplyFailed",

@@ -166,6 +166,15 @@ func (r *managedReconcile) clean(ctx context.Context, klusterlet *operatorapiv1.
 // cleanUpAppliedManifestWorks removes finalizer from the AppliedManifestWorks whose name starts with
 // the hash of the given hub host.
 func (r *managedReconcile) cleanUpAppliedManifestWorks(ctx context.Context, klusterlet *operatorapiv1.Klusterlet, config klusterletConfig) error {
+	appliedManifestWorks, err := r.managedClusterClients.appliedManifestWorkClient.List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return fmt.Errorf("unable to list AppliedManifestWorks: %w", err)
+	}
+
+	if len(appliedManifestWorks.Items) == 0 {
+		return nil
+	}
+
 	bootstrapKubeConfigSecret, err := r.kubeClient.CoreV1().Secrets(config.AgentNamespace).Get(ctx, config.BootStrapKubeConfigSecret, metav1.GetOptions{})
 	if err != nil {
 		return err
@@ -175,11 +184,6 @@ func (r *managedReconcile) cleanUpAppliedManifestWorks(ctx context.Context, klus
 		return fmt.Errorf("unable to load kubeconfig from secret %q %q: %w", config.AgentNamespace, config.BootStrapKubeConfigSecret, err)
 	}
 
-	appliedManifestWorks, err := r.managedClusterClients.appliedManifestWorkClient.List(ctx, metav1.ListOptions{})
-
-	if err != nil {
-		return fmt.Errorf("unable to list AppliedManifestWorks: %w", err)
-	}
 	var errs []error
 	prefix := fmt.Sprintf("%s-", fmt.Sprintf("%x", sha256.Sum256([]byte(restConfig.Host))))
 	for _, appliedManifestWork := range appliedManifestWorks.Items {

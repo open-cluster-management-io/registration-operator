@@ -16,12 +16,16 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/serializer"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
-	versionutil "k8s.io/apimachinery/pkg/version"
+	versionutil "k8s.io/apimachinery/pkg/util/version"
 	"k8s.io/klog/v2"
 	"open-cluster-management.io/registration-operator/pkg/version"
 )
 
-const versionLabelKey = "operator.open-cluster-management.io/version"
+// versionAnnotationKey is an annotation key on crd resources to mark the ocm version of the crds.
+const (
+	versionAnnotationKey = "operator.open-cluster-management.io/version"
+	defaultVersion       = "99.99.99"
+)
 
 var (
 	genericScheme = runtime.NewScheme()
@@ -39,7 +43,8 @@ type CRD interface {
 }
 
 type Manager[T CRD] struct {
-	client crdClient[T]
+	client  crdClient[T]
+	version *versionutil.Version
 }
 
 type crdClient[T CRD] interface {
@@ -58,15 +63,24 @@ func (r *RemainingCRDError) Error() string {
 }
 
 func NewManager[T CRD](client crdClient[T]) *Manager[T] {
+	gitVersion := version.Get().GitVersion
+	if len(gitVersion) == 0 {
+		gitVersion = defaultVersion
+	}
+	v, err := versionutil.ParseGeneric(gitVersion)
+	if err != nil {
+		utilruntime.HandleError(err)
+	}
 	manager := &Manager[T]{
-		client: client,
+		client:  client,
+		version: v,
 	}
 
 	return manager
 }
 
 func (m *Manager[T]) CleanOne(ctx context.Context, name string, skip bool) error {
-	// remove version label if skip clean
+	// remove version annotation if skip clean
 	if skip {
 		existing, err := m.client.Get(ctx, name, metav1.GetOptions{})
 		switch {
@@ -79,11 +93,23 @@ func (m *Manager[T]) CleanOne(ctx context.Context, name string, skip bool) error
 		if err != nil {
 			return err
 		}
-		labels := accessor.GetLabels()
-		if _, ok := labels[versionLabelKey]; ok {
-			delete(labels, versionLabelKey)
+		annotations := accessor.GetAnnotations()
+		if annotations == nil {
+			return nil
 		}
-		accessor.SetLabels(labels)
+		v, ok := annotations[versionAnnotationKey]
+		if !ok {
+			return nil
+		}
+		cnt, err := m.version.Compare(v)
+		if err != nil {
+			return err
+		}
+		if cnt != 0 {
+			return nil
+		}
+		delete(annotations, versionAnnotationKey)
+		accessor.SetAnnotations(annotations)
 		_, err = m.client.Update(ctx, existing, metav1.UpdateOptions{})
 		return err
 	}
@@ -186,9 +212,18 @@ func (m *Manager[T]) applyOne(ctx context.Context, required T) error {
 	if err != nil {
 		return err
 	}
-	existingVersion, ok := accessor.GetLabels()[versionLabelKey]
-	requiredVersion := version.Get().GitVersion
-	if ok && versionutil.CompareKubeAwareVersionStrings(requiredVersion, existingVersion) <= 0 {
+
+	var existingVersion string
+	if accessor.GetAnnotations() != nil {
+		existingVersion = accessor.GetAnnotations()[versionAnnotationKey]
+	}
+
+	ok, err := shouldUpdate(m.version, existingVersion)
+	if err != nil {
+		return err
+	}
+
+	if !ok {
 		return nil
 	}
 
@@ -197,12 +232,12 @@ func (m *Manager[T]) applyOne(ctx context.Context, required T) error {
 		return err
 	}
 
-	labels := requiredAccessor.GetLabels()
-	if labels == nil {
-		labels = map[string]string{}
+	annotations := requiredAccessor.GetAnnotations()
+	if annotations == nil {
+		annotations = map[string]string{}
 	}
-	labels[versionLabelKey] = requiredVersion
-	requiredAccessor.SetLabels(labels)
+	annotations[versionAnnotationKey] = m.version.String()
+	requiredAccessor.SetAnnotations(annotations)
 	requiredAccessor.SetResourceVersion(accessor.GetResourceVersion())
 
 	_, err = m.client.Update(ctx, required, metav1.UpdateOptions{})
@@ -210,7 +245,23 @@ func (m *Manager[T]) applyOne(ctx context.Context, required T) error {
 		return err
 	}
 
-	klog.Infof("crd %s is updated to version %s", accessor.GetName(), requiredVersion)
+	klog.Infof("crd %s is updated to version %s", accessor.GetName(), m.version.String())
 
 	return nil
+}
+
+func shouldUpdate(desired *versionutil.Version, current string) (bool, error) {
+	// always update if current is not set or equals defaultVersion
+	// defaultVersion should only exist when gitVersion is not set during build.
+	if len(current) == 0 || current == defaultVersion {
+		return true, nil
+	}
+
+	cnt, err := desired.Compare(current)
+	if err != nil {
+		return false, err
+	}
+
+	// do not update when version equals
+	return cnt > 0, nil
 }
