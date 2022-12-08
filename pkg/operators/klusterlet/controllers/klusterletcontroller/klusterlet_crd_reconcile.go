@@ -44,7 +44,10 @@ func (r *crdReconcile) reconcile(ctx context.Context, klusterlet *operatorapiv1.
 	var applyErr error
 
 	if cnt, err := r.kubeVersion.Compare("v1.16.0"); err == nil && cnt < 0 {
-		crdManager := crdmanager.NewManager[*apiextensionsv1beta1.CustomResourceDefinition](r.managedClusterClients.apiExtensionClient.ApiextensionsV1beta1().CustomResourceDefinitions())
+		crdManager := crdmanager.NewManager[*apiextensionsv1beta1.CustomResourceDefinition](
+			r.managedClusterClients.apiExtensionClient.ApiextensionsV1beta1().CustomResourceDefinitions(),
+			crdmanager.EqualV1Beta1,
+		)
 		applyErr = crdManager.Apply(ctx,
 			func(name string) ([]byte, error) {
 				template, err := manifests.KlusterletManifestFiles.ReadFile(name)
@@ -58,7 +61,10 @@ func (r *crdReconcile) reconcile(ctx context.Context, klusterlet *operatorapiv1.
 			crdV1beta1StaticFiles...,
 		)
 	} else {
-		crdManager := crdmanager.NewManager[*apiextensionsv1.CustomResourceDefinition](r.managedClusterClients.apiExtensionClient.ApiextensionsV1().CustomResourceDefinitions())
+		crdManager := crdmanager.NewManager[*apiextensionsv1.CustomResourceDefinition](
+			r.managedClusterClients.apiExtensionClient.ApiextensionsV1().CustomResourceDefinitions(),
+			crdmanager.EqualV1,
+		)
 		applyErr = crdManager.Apply(ctx,
 			func(name string) ([]byte, error) {
 				template, err := manifests.KlusterletManifestFiles.ReadFile(name)
@@ -90,7 +96,10 @@ func (r *crdReconcile) reconcile(ctx context.Context, klusterlet *operatorapiv1.
 func (r *crdReconcile) clean(ctx context.Context, klusterlet *operatorapiv1.Klusterlet, config klusterletConfig) (*operatorapiv1.Klusterlet, reconcileState, error) {
 	var deleteErr error
 	if cnt, err := r.kubeVersion.Compare("v1.16.0"); err == nil && cnt < 0 {
-		crdManager := crdmanager.NewManager[*apiextensionsv1beta1.CustomResourceDefinition](r.managedClusterClients.apiExtensionClient.ApiextensionsV1beta1().CustomResourceDefinitions())
+		crdManager := crdmanager.NewManager[*apiextensionsv1beta1.CustomResourceDefinition](
+			r.managedClusterClients.apiExtensionClient.ApiextensionsV1beta1().CustomResourceDefinitions(),
+			crdmanager.EqualV1Beta1,
+		)
 		deleteErr = crdManager.Clean(ctx, true,
 			func(name string) ([]byte, error) {
 				template, err := manifests.KlusterletManifestFiles.ReadFile(name)
@@ -104,7 +113,10 @@ func (r *crdReconcile) clean(ctx context.Context, klusterlet *operatorapiv1.Klus
 			crdV1beta1StaticFiles...,
 		)
 	} else {
-		crdManager := crdmanager.NewManager[*apiextensionsv1.CustomResourceDefinition](r.managedClusterClients.apiExtensionClient.ApiextensionsV1().CustomResourceDefinitions())
+		crdManager := crdmanager.NewManager[*apiextensionsv1.CustomResourceDefinition](
+			r.managedClusterClients.apiExtensionClient.ApiextensionsV1().CustomResourceDefinitions(),
+			crdmanager.EqualV1,
+		)
 		deleteErr = crdManager.Clean(ctx, true,
 			func(name string) ([]byte, error) {
 				template, err := manifests.KlusterletManifestFiles.ReadFile(name)

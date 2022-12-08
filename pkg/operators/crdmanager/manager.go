@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/openshift/library-go/pkg/operator/resource/resourcemerge"
+	"k8s.io/utils/pointer"
 	"strings"
 
 	"github.com/openshift/library-go/pkg/operator/resource/resourceapply"
@@ -24,7 +26,10 @@ import (
 // versionAnnotationKey is an annotation key on crd resources to mark the ocm version of the crds.
 const (
 	versionAnnotationKey = "operator.open-cluster-management.io/version"
-	defaultVersion       = "99.99.99"
+	// defaultVersion is set if gitVersion cannot be obtained. It is the lownest version so crd is updated as long
+	// as it has a higher version. It also ensures the crd spec is still compared
+	// for update when version is not obtained.
+	defaultVersion = "0.0.0"
 )
 
 var (
@@ -44,6 +49,7 @@ type CRD interface {
 
 type Manager[T CRD] struct {
 	client  crdClient[T]
+	equal   func(old, new T) bool
 	version *versionutil.Version
 }
 
@@ -62,7 +68,7 @@ func (r *RemainingCRDError) Error() string {
 	return fmt.Sprintf("Thera are still reaming CRDs: %s", strings.Join(r.RemainingCRDs, ","))
 }
 
-func NewManager[T CRD](client crdClient[T]) *Manager[T] {
+func NewManager[T CRD](client crdClient[T], equalFunc func(old, new T) bool) *Manager[T] {
 	gitVersion := version.Get().GitVersion
 	if len(gitVersion) == 0 {
 		gitVersion = defaultVersion
@@ -73,6 +79,7 @@ func NewManager[T CRD](client crdClient[T]) *Manager[T] {
 	}
 	manager := &Manager[T]{
 		client:  client,
+		equal:   equalFunc,
 		version: v,
 	}
 
@@ -207,18 +214,7 @@ func (m *Manager[T]) applyOne(ctx context.Context, required T) error {
 		return err
 	}
 
-	// if existingVersion is higher than the required version, do not update crd.
-	accessor, err = meta.Accessor(existing)
-	if err != nil {
-		return err
-	}
-
-	var existingVersion string
-	if accessor.GetAnnotations() != nil {
-		existingVersion = accessor.GetAnnotations()[versionAnnotationKey]
-	}
-
-	ok, err := shouldUpdate(m.version, existingVersion)
+	ok, err := m.shouldUpdate(existing, required)
 	if err != nil {
 		return err
 	}
@@ -227,18 +223,18 @@ func (m *Manager[T]) applyOne(ctx context.Context, required T) error {
 		return nil
 	}
 
-	requiredAccessor, err := meta.Accessor(required)
+	existingAccessor, err := meta.Accessor(existing)
 	if err != nil {
 		return err
 	}
 
-	annotations := requiredAccessor.GetAnnotations()
+	annotations := accessor.GetAnnotations()
 	if annotations == nil {
 		annotations = map[string]string{}
 	}
 	annotations[versionAnnotationKey] = m.version.String()
-	requiredAccessor.SetAnnotations(annotations)
-	requiredAccessor.SetResourceVersion(accessor.GetResourceVersion())
+	accessor.SetAnnotations(annotations)
+	accessor.SetResourceVersion(existingAccessor.GetResourceVersion())
 
 	_, err = m.client.Update(ctx, required, metav1.UpdateOptions{})
 	if err != nil {
@@ -250,18 +246,47 @@ func (m *Manager[T]) applyOne(ctx context.Context, required T) error {
 	return nil
 }
 
-func shouldUpdate(desired *versionutil.Version, current string) (bool, error) {
-	// always update if current is not set or equals defaultVersion
-	// defaultVersion should only exist when gitVersion is not set during build.
-	if len(current) == 0 || current == defaultVersion {
-		return true, nil
-	}
-
-	cnt, err := desired.Compare(current)
+func (m *Manager[T]) shouldUpdate(old, new T) (bool, error) {
+	// if existingVersion is higher than the required version, do not update crd.
+	accessor, err := meta.Accessor(old)
 	if err != nil {
 		return false, err
 	}
 
-	// do not update when version equals
+	var existingVersion string
+	if accessor.GetAnnotations() != nil {
+		existingVersion = accessor.GetAnnotations()[versionAnnotationKey]
+	}
+
+	// alwasy update if existing doest not have version annotation
+	if len(existingVersion) == 0 {
+		return true, nil
+	}
+
+	cnt, err := m.version.Compare(existingVersion)
+	if err != nil {
+		return false, err
+	}
+
+	// if the version are the same, compare the spec
+	if cnt == 0 {
+		return !m.equal(old, new), nil
+	}
+
+	// do not update when version is higher
 	return cnt > 0, nil
+}
+
+func EqualV1(old, new *apiextensionsv1.CustomResourceDefinition) bool {
+	modified := pointer.Bool(false)
+
+	resourcemerge.EnsureCustomResourceDefinitionV1(modified, old, *new)
+	return !*modified
+}
+
+func EqualV1Beta1(old, new *apiextensionsv1beta1.CustomResourceDefinition) bool {
+	modified := pointer.Bool(false)
+
+	resourcemerge.EnsureCustomResourceDefinitionV1Beta1(modified, old, *new)
+	return !*modified
 }

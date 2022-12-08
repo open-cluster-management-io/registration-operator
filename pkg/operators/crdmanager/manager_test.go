@@ -81,12 +81,24 @@ func TestApplyV1CRD(t *testing.T) {
 				testinghelpers.AssertAction(t, actions[0], "get")
 			},
 		},
+		{
+			name:           "crd version equals",
+			desiredVersion: "0.0.0",
+			requiredCRDs:   []runtime.Object{newV1CRD("foo", "")},
+			existingCRDs:   []runtime.Object{newV1CRD("foo", "0.0.0")},
+			verify: func(t *testing.T, actions []clienttesting.Action) {
+				if len(actions) != 1 {
+					t.Fatalf("actions are not expected: %v", actions)
+				}
+				testinghelpers.AssertAction(t, actions[0], "get")
+			},
+		},
 	}
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			client := fakeapiextensions.NewSimpleClientset(c.existingCRDs...)
-			manager := NewManager[*apiextensionsv1.CustomResourceDefinition](client.ApiextensionsV1().CustomResourceDefinitions())
+			manager := NewManager[*apiextensionsv1.CustomResourceDefinition](client.ApiextensionsV1().CustomResourceDefinitions(), EqualV1)
 			v, _ := versionutil.ParseSemantic(c.desiredVersion)
 			manager.version = v
 			var indices []string
@@ -172,7 +184,7 @@ func TestApplyV1Beta1CRD(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			client := fakeapiextensions.NewSimpleClientset(c.existingCRDs...)
-			manager := NewManager[*apiextensionsv1beta1.CustomResourceDefinition](client.ApiextensionsV1beta1().CustomResourceDefinitions())
+			manager := NewManager[*apiextensionsv1beta1.CustomResourceDefinition](client.ApiextensionsV1beta1().CustomResourceDefinitions(), EqualV1Beta1)
 			v, _ := versionutil.ParseSemantic(c.desiredVersion)
 			manager.version = v
 			var indices []string
@@ -264,7 +276,7 @@ func TestClean(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			client := fakeapiextensions.NewSimpleClientset(c.existingCRDs...)
-			manager := NewManager[*apiextensionsv1.CustomResourceDefinition](client.ApiextensionsV1().CustomResourceDefinitions())
+			manager := NewManager[*apiextensionsv1.CustomResourceDefinition](client.ApiextensionsV1().CustomResourceDefinitions(), EqualV1)
 			v, _ := versionutil.ParseSemantic(c.desiredVersion)
 			manager.version = v
 			var indices []string
@@ -313,6 +325,11 @@ func newV1CRD(name, version string) *apiextensionsv1.CustomResourceDefinition {
 		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name: name,
+		},
+		Spec: apiextensionsv1.CustomResourceDefinitionSpec{
+			Conversion: &apiextensionsv1.CustomResourceConversion{
+				Strategy: apiextensionsv1.NoneConverter,
+			},
 		},
 	}
 

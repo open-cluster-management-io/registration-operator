@@ -3,6 +3,7 @@ package klusterletcontroller
 import (
 	"context"
 	"fmt"
+	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
@@ -262,14 +263,31 @@ func (n *klusterletController) sync(ctx context.Context, controllerContext facto
 		appliedCondition = &metav1.Condition{
 			Type: klusterletApplied, Status: metav1.ConditionTrue, Reason: "KlusterletApplied",
 			Message: "Klusterlet Component Applied"}
-	} else if appliedCondition == nil {
-		appliedCondition = &metav1.Condition{
-			Type: klusterletApplied, Status: metav1.ConditionFalse, Reason: "KlusterletApplyFailed",
-			Message: "Klusterlet Component Apply failed"}
+	} else {
+		if appliedCondition == nil {
+			appliedCondition = &metav1.Condition{
+				Type: klusterletApplied, Status: metav1.ConditionFalse, Reason: "KlusterletApplyFailed",
+				Message: "Klusterlet Component Apply failed"}
+		}
+
+		// When appliedCondition is false, we should not update related resources and resource generations
+		_, updated, err := helpers.UpdateKlusterletStatus(ctx, n.klusterletClient, klusterletName,
+			helpers.UpdateKlusterletConditionFn(featureGateCondition, *appliedCondition),
+			func(oldStatus *operatorapiv1.KlusterletStatus) error {
+				oldStatus.ObservedGeneration = klusterlet.Generation
+				return nil
+			},
+		)
+
+		if updated {
+			return err
+		}
+
+		return utilerrors.NewAggregate(errs)
 	}
 
-	// If we get here, we have successfully applied everything and should indicate that
-	_, _, _ = helpers.UpdateKlusterletStatus(ctx, n.klusterletClient, klusterletName,
+	// If we get here, we have successfully applied everything.
+	_, _, err = helpers.UpdateKlusterletStatus(ctx, n.klusterletClient, klusterletName,
 		helpers.UpdateKlusterletConditionFn(featureGateCondition, *appliedCondition),
 		helpers.UpdateKlusterletGenerationsFn(klusterlet.Status.Generations...),
 		helpers.UpdateKlusterletRelatedResourcesFn(klusterlet.Status.RelatedResources...),
@@ -278,7 +296,7 @@ func (n *klusterletController) sync(ctx context.Context, controllerContext facto
 			return nil
 		},
 	)
-	return nil
+	return err
 }
 
 // TODO also read CABundle from ExternalServerURLs and set into registration deployment

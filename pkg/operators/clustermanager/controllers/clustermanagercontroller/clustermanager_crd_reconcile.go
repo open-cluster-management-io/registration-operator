@@ -79,7 +79,10 @@ func (c *crdReconcile) reconcile(ctx context.Context, cm *operatorapiv1.ClusterM
 		return cm, reconcileStop, err
 	}
 
-	crdManager := crdmanager.NewManager[*apiextensionsv1.CustomResourceDefinition](c.hubAPIExtensionClient.ApiextensionsV1().CustomResourceDefinitions())
+	crdManager := crdmanager.NewManager[*apiextensionsv1.CustomResourceDefinition](
+		c.hubAPIExtensionClient.ApiextensionsV1().CustomResourceDefinitions(),
+		crdmanager.EqualV1,
+	)
 
 	if err := crdManager.Apply(ctx,
 		func(name string) ([]byte, error) {
@@ -105,7 +108,10 @@ func (c *crdReconcile) reconcile(ctx context.Context, cm *operatorapiv1.ClusterM
 }
 
 func (c *crdReconcile) clean(ctx context.Context, cm *operatorapiv1.ClusterManager, config manifests.HubConfig) (*operatorapiv1.ClusterManager, reconcileState, error) {
-	crdManager := crdmanager.NewManager[*apiextensionsv1.CustomResourceDefinition](c.hubAPIExtensionClient.ApiextensionsV1().CustomResourceDefinitions())
+	crdManager := crdmanager.NewManager[*apiextensionsv1.CustomResourceDefinition](
+		c.hubAPIExtensionClient.ApiextensionsV1().CustomResourceDefinitions(),
+		crdmanager.EqualV1,
+	)
 
 	// Remove crds in order at first
 	for _, name := range crdNames {
