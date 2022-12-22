@@ -66,7 +66,7 @@ var _ = ginkgo.Describe("ClusterManager Default Mode", func() {
 		}
 	})
 
-	ginkgo.Context("Deploy and clean hub component", func() {
+	ginkgo.Context("Deploy hub component", func() {
 		ginkgo.It("should have expected resource created successfully", func() {
 			// Check namespace
 			gomega.Eventually(func() error {

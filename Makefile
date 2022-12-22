@@ -219,9 +219,15 @@ clean-spoke-olm: ensure-operator-sdk
 
 test-e2e: deploy-hub deploy-spoke-operator run-e2e
 
+test-e2e-in-parallel: deploy-hub deploy-spoke-operator run-e2e-in-parallel
+
 run-e2e: cluster-ip bootstrap-secret
 	go test -c ./test/e2e
 	./e2e.test -test.v -ginkgo.v
+
+run-e2e-in-parallel: cluster-ip bootstrap-secret
+	go test -c ./test/e2e
+	./e2e.test -test.v -ginkgo.v -ginkgo.label-filter="!run-alone"
 
 clean-e2e:
 	$(RM) ./e2e.test

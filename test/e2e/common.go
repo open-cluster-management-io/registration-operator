@@ -702,3 +702,22 @@ func (t *Tester) CheckManagedClusterAddOnStatus(managedClusterNamespace, addOnNa
 
 	return nil
 }
+
+const (
+	// clustermanagerName is the name of ClusterManager CR.
+	clustermanagerName = "cluster-manager"
+)
+
+func (t *Tester) GetClusterManager(ctx context.Context) (*operatorapiv1.ClusterManager, error) {
+	return t.OperatorClient.OperatorV1().ClusterManagers().Get(ctx, clustermanagerName, metav1.GetOptions{})
+}
+
+func (t *Tester) RecreateClusterManager(ctx context.Context, cm *operatorapiv1.ClusterManager) error {
+	cm.ResourceVersion = ""
+	_, err := t.OperatorClient.OperatorV1().ClusterManagers().Create(ctx, cm, metav1.CreateOptions{})
+	return err
+}
+
+func (t *Tester) DeleteClusterManager(ctx context.Context) error {
+	return t.OperatorClient.OperatorV1().ClusterManagers().Delete(ctx, clustermanagerName, metav1.DeleteOptions{})
+}
