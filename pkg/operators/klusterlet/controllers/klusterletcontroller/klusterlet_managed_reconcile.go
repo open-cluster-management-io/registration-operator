@@ -178,17 +178,16 @@ func (r *managedReconcile) cleanUpAppliedManifestWorks(ctx context.Context, klus
 		return nil
 	}
 
-	bootstrapKubeConfigSecret, err := r.kubeClient.CoreV1().Secrets(config.AgentNamespace).Get(ctx, config.BootStrapKubeConfigSecret, metav1.GetOptions{})
+	hubHost, err := r.getHostFromKubeconfigSecret(ctx, config.AgentNamespace, config.BootStrapKubeConfigSecret)
 	if err != nil {
-		return err
+		errs := []error{err}
+		hubHost, err = r.getHostFromKubeconfigSecret(ctx, config.AgentNamespace, config.HubKubeConfigSecret)
+		if err != nil {
+			return utilerrors.NewAggregate(append(errs, err))
+		}
 	}
-	restConfig, err := helpers.LoadClientConfigFromSecret(bootstrapKubeConfigSecret)
-	if err != nil {
-		return fmt.Errorf("unable to load kubeconfig from secret %q %q: %w", config.AgentNamespace, config.BootStrapKubeConfigSecret, err)
-	}
-
 	var errs []error
-	prefix := fmt.Sprintf("%s-", fmt.Sprintf("%x", sha256.Sum256([]byte(restConfig.Host))))
+	prefix := fmt.Sprintf("%s-", fmt.Sprintf("%x", sha256.Sum256([]byte(hubHost))))
 	for _, appliedManifestWork := range appliedManifestWorks.Items {
 		// ignore AppliedManifestWork for other klusterlet
 		// TODO we should not need to filter AppliedManifestWork using hubhost in the next release.
@@ -207,4 +206,19 @@ func (r *managedReconcile) cleanUpAppliedManifestWorks(ctx context.Context, klus
 		}
 	}
 	return utilerrors.NewAggregate(errs)
+}
+
+func (r *managedReconcile) getHostFromKubeconfigSecret(
+	ctx context.Context, agentNamespace, secretName string) (string, error) {
+
+	bootstrapKubeConfigSecret, err := r.kubeClient.CoreV1().Secrets(agentNamespace).Get(
+		ctx, secretName, metav1.GetOptions{})
+	if err != nil {
+		return "", fmt.Errorf("unable to get secret %q %q: %w", agentNamespace, secretName, err)
+	}
+	restConfig, err := helpers.LoadClientConfigFromSecret(bootstrapKubeConfigSecret)
+	if err != nil {
+		return "", fmt.Errorf("unable to load kubeconfig from secret %q %q: %w", agentNamespace, secretName, err)
+	}
+	return restConfig.Host, nil
 }
