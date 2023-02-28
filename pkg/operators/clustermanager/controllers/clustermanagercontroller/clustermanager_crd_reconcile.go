@@ -51,7 +51,15 @@ var (
 	}
 
 	// removed CRD StoredVersions
-	removedCRDStoredVersions = map[string]string{}
+	removedCRDStoredVersions = map[string]string{
+		"managedclustersets.cluster.open-cluster-management.io":        "v1beta1",
+		"managedclustersetbindings.cluster.open-cluster-management.io": "v1beta1",
+	}
+	// latest required CRD StoredVersions
+	requiredCRDStoredVersion = map[string]string{
+		"managedclustersets.cluster.open-cluster-management.io":        "v1beta2",
+		"managedclustersetbindings.cluster.open-cluster-management.io": "v1beta2",
+	}
 )
 
 type crdReconcile struct {
@@ -64,17 +72,6 @@ type crdReconcile struct {
 }
 
 func (c *crdReconcile) reconcile(ctx context.Context, cm *operatorapiv1.ClusterManager, config manifests.HubConfig) (*operatorapiv1.ClusterManager, reconcileState, error) {
-	// update CRD StoredVersion
-	if err := c.updateStoredVersion(ctx); err != nil {
-		meta.SetStatusCondition(&cm.Status.Conditions, metav1.Condition{
-			Type:    clusterManagerApplied,
-			Status:  metav1.ConditionFalse,
-			Reason:  "CRDStoredVersionUpdateFailed",
-			Message: fmt.Sprintf("Failed to update crd stored version: %v", err),
-		})
-		return cm, reconcileStop, err
-	}
-
 	crdManager := crdmanager.NewManager[*apiextensionsv1.CustomResourceDefinition](
 		c.hubAPIExtensionClient.ApiextensionsV1().CustomResourceDefinitions(),
 		crdmanager.EqualV1,
@@ -96,6 +93,17 @@ func (c *crdReconcile) reconcile(ctx context.Context, cm *operatorapiv1.ClusterM
 			Status:  metav1.ConditionFalse,
 			Reason:  "CRDApplyFaild",
 			Message: fmt.Sprintf("Failed to apply crd: %v", err),
+		})
+		return cm, reconcileStop, err
+	}
+
+	// update CRD StoredVersion
+	if err := c.updateStoredVersion(ctx); err != nil {
+		meta.SetStatusCondition(&cm.Status.Conditions, metav1.Condition{
+			Type:    clusterManagerApplied,
+			Status:  metav1.ConditionFalse,
+			Reason:  "CRDStoredVersionUpdateFailed",
+			Message: fmt.Sprintf("Failed to update crd stored version: %v", err),
 		})
 		return cm, reconcileStop, err
 	}
@@ -139,16 +147,28 @@ func (c *crdReconcile) clean(ctx context.Context, cm *operatorapiv1.ClusterManag
 
 // updateStoredVersion update(remove) deleted api version from CRD status.StoredVersions
 func (c *crdReconcile) updateStoredVersion(ctx context.Context) error {
-	for name, version := range removedCRDStoredVersions {
-		// Check migration status before update CRD stored version
-		// If CRD's StorageVersionMigration is not found, it means that the previous or the current release CRD doesn't need migration, and can contiue to update the CRD's stored version.
-		// If CRD's StorageVersionMigration is found and the status is success, it means that the current CRs were migrated successfully, and can contiue to update the CRD's stored version.
-		// Other cases, for example, the migration failed, we should not contiue to update the stored version, that will caused the stored old version CRs inconsistent with latest CRD.
-		svmStatus, err := migrationcontroller.IsStorageVersionMigrationSucceeded(c.hubMigrationClient, name)
-		if svmStatus == false && !errors.IsNotFound(err) {
-			return fmt.Errorf("failed to updateStoredVersion as StorageVersionMigrations %v: %v", name, err)
-		}
+	//Check if current env support StorageVersionMigration
+	supported, err := migrationcontroller.SupportStorageVersionMigration(ctx, c.hubAPIExtensionClient)
+	if err != nil {
+		return err
+	}
 
+	for name, version := range removedCRDStoredVersions {
+		needMigrate := migrationcontroller.NeedMigrate(name)
+		if supported && needMigrate {
+			// Check migration status before update CRD stored version
+			// If CRD's StorageVersionMigration succeed, it means that the current CRs were migrated successfully, and can continue to update the CRD's stored version.
+			// If CRD's StorageVersionMigration is not found, it means StorageVersionMigration cr is not created. need wait it created.
+			// If the migration failed, we should not contiue to update the stored version, that will caused the stored old version CRs inconsistent with latest CRD.
+			migrateSucceed, err := migrationcontroller.IsStorageVersionMigrationSucceeded(c.hubMigrationClient, name)
+			if migrateSucceed == false {
+				if err != nil && !errors.IsNotFound(err) {
+					return fmt.Errorf("failed to execute StorageVersionMigrations %v: %v", name, err)
+				}
+				klog.Infof("Wait StorageVersionMigrations %v succeed", name)
+				continue
+			}
+		}
 		// retrieve CRD
 		crd, err := c.hubAPIExtensionClient.ApiextensionsV1().CustomResourceDefinitions().Get(ctx, name, metav1.GetOptions{})
 		if errors.IsNotFound(err) {
@@ -159,14 +179,9 @@ func (c *crdReconcile) updateStoredVersion(ctx context.Context) error {
 			continue
 		}
 
-		// remove old versions from its status
 		oldStoredVersions := crd.Status.StoredVersions
-		newStoredVersions := make([]string, 0, len(oldStoredVersions))
-		for _, stored := range oldStoredVersions {
-			if stored != version {
-				newStoredVersions = append(newStoredVersions, stored)
-			}
-		}
+
+		newStoredVersions := desiredStoredVersions(oldStoredVersions, requiredCRDStoredVersion[name], version)
 
 		if !reflect.DeepEqual(oldStoredVersions, newStoredVersions) {
 			crd.Status.StoredVersions = newStoredVersions
@@ -180,4 +195,35 @@ func (c *crdReconcile) updateStoredVersion(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// desiredStoredVersions caculate the desired stored versions
+// If the "requiredStoredVersion" do not exist, do not update the current stored versions
+// If the "requiredStoredVersion" exist, delete the "removedCRDStoredVersion"
+func desiredStoredVersions(curStoredVersion []string, requiredStoredVersion, removedCRDStoredVersion string) []string {
+	// remove old versions from its status
+	newStoredVersions := make([]string, 0, len(curStoredVersion))
+	if len(removedCRDStoredVersion) == 0 {
+		return curStoredVersion
+	}
+
+	//If required version do not exist, do not update the storedversion
+	requiredVersionExist := false
+	if len(requiredStoredVersion) != 0 {
+		for _, stored := range curStoredVersion {
+			if stored == requiredStoredVersion {
+				requiredVersionExist = true
+			}
+		}
+		if !requiredVersionExist {
+			return curStoredVersion
+		}
+	}
+
+	for _, stored := range curStoredVersion {
+		if stored != removedCRDStoredVersion {
+			newStoredVersions = append(newStoredVersions, stored)
+		}
+	}
+	return newStoredVersions
 }

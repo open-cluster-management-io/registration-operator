@@ -41,7 +41,7 @@ func TestSupportStorageVersionMigration(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			fakeAPIExtensionClient := fakeapiextensions.NewSimpleClientset(c.existingObjects...)
-			actual, err := supportStorageVersionMigration(context.TODO(), fakeAPIExtensionClient)
+			actual, err := SupportStorageVersionMigration(context.TODO(), fakeAPIExtensionClient)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -183,5 +183,36 @@ func assertStorageVersionMigration(t *testing.T, name string, object runtime.Obj
 
 	if migration.Name != name {
 		t.Errorf("expected migration name %q but got %q", name, migration.Name)
+	}
+}
+
+func TestNeedMigrate(t *testing.T) {
+	tests := []struct {
+		name         string
+		resourceName string
+		want         bool
+	}{
+		{
+			name:         "Need set migrate",
+			resourceName: "managedclustersets.cluster.open-cluster-management.io",
+			want:         true,
+		},
+		{
+			name:         "Need set binding migrate",
+			resourceName: "managedclustersetbindings.cluster.open-cluster-management.io",
+			want:         true,
+		},
+		{
+			name:         "DO NOT Need migrate",
+			resourceName: "managedclusters.cluster.open-cluster-management.io",
+			want:         false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := NeedMigrate(tt.resourceName); got != tt.want {
+				t.Errorf("NeedMigrate() = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }

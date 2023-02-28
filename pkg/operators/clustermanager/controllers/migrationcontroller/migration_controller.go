@@ -48,6 +48,10 @@ var (
 		"cluster-manager/cluster-manager-managedclustersets-migration.yaml",
 		"cluster-manager/cluster-manager-managedclustersetbindings-migration.yaml",
 	}
+	requiredMigrationResources = []string{
+		"managedclustersets.cluster.open-cluster-management.io",
+		"managedclustersetbindings.cluster.open-cluster-management.io",
+	}
 )
 
 const (
@@ -113,7 +117,7 @@ func (c *crdMigrationController) sync(ctx context.Context, controllerContext fac
 	}
 
 	// apply storage version migrations if it is supported
-	supported, err := supportStorageVersionMigration(ctx, apiExtensionClient)
+	supported, err := SupportStorageVersionMigration(ctx, apiExtensionClient)
 	if err != nil {
 		return err
 	}
@@ -136,7 +140,7 @@ func (c *crdMigrationController) sync(ctx context.Context, controllerContext fac
 }
 
 // supportStorageVersionMigration returns ture if StorageVersionMigration CRD exists; otherwise returns false.
-func supportStorageVersionMigration(ctx context.Context, apiExtensionClient apiextensionsclient.Interface) (bool, error) {
+func SupportStorageVersionMigration(ctx context.Context, apiExtensionClient apiextensionsclient.Interface) (bool, error) {
 	_, err := apiExtensionClient.ApiextensionsV1().CustomResourceDefinitions().Get(ctx, migrationRequestCRDName, metav1.GetOptions{})
 	if errors.IsNotFound(err) {
 		return false, nil
@@ -273,6 +277,16 @@ func applyStorageVersionMigration(
 	return actual, true, nil
 }
 
+// NeedMigrate check if the resource need do the migrate
+func NeedMigrate(resourceName string) bool {
+	for _, requiredMigrationResource := range requiredMigrationResources {
+		if requiredMigrationResource == resourceName {
+			return true
+		}
+	}
+	return false
+}
+
 func IsStorageVersionMigrationSucceeded(client migrationv1alpha1client.StorageVersionMigrationsGetter, name string) (bool, error) {
 	svmcr, err := client.StorageVersionMigrations().Get(context.TODO(), name, metav1.GetOptions{})
 	if err != nil {
@@ -287,7 +301,7 @@ func IsStorageVersionMigrationSucceeded(client migrationv1alpha1client.StorageVe
 			}
 		case migrationv1alpha1.MigrationFailed:
 			if c.Status == corev1.ConditionTrue {
-				return false, nil
+				return false, fmt.Errorf("storageversionmigrations %v failed. Error: %v", name, c.Message)
 			}
 		}
 	}
