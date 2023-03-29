@@ -7,6 +7,7 @@ package klusterletcontroller
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/openshift/library-go/pkg/assets"
 	"github.com/openshift/library-go/pkg/operator/events"
@@ -17,6 +18,7 @@ import (
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/version"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/klog/v2"
 	operatorapiv1 "open-cluster-management.io/api/operator/v1"
 
 	"open-cluster-management.io/registration-operator/manifests"
@@ -132,6 +134,15 @@ func (r *managedReconcile) clean(ctx context.Context, klusterlet *operatorapiv1.
 		return klusterlet, reconcileContinue, nil
 	}
 
+	// check the managed cluster connectivity
+	stop, err := r.checkConnectivity(ctx, klusterlet)
+	if err != nil {
+		return klusterlet, reconcileStop, err
+	}
+	if stop == reconcileStop {
+		return klusterlet, reconcileContinue, nil
+	}
+
 	if err := r.cleanUpAppliedManifestWorks(ctx, klusterlet, config); err != nil {
 		return klusterlet, reconcileStop, err
 	}
@@ -160,6 +171,42 @@ func (r *managedReconcile) clean(ctx context.Context, klusterlet *operatorapiv1.
 	}
 
 	return klusterlet, reconcileContinue, nil
+}
+
+func (r *managedReconcile) checkConnectivity(ctx context.Context,
+	klusterlet *operatorapiv1.Klusterlet) (reconcileState, error) {
+	_, err := r.managedClusterClients.appliedManifestWorkClient.List(ctx, metav1.ListOptions{})
+	if err == nil {
+		return reconcileContinue, nil
+	}
+
+	if errors.IsTimeout(err) || errors.IsServerTimeout(err) {
+		klog.Infof("Check the connectivity timeout")
+		if klusterlet.Annotations == nil {
+			klusterlet.Annotations = make(map[string]string, 0)
+		}
+
+		evictionTimeStr, ok := klusterlet.Annotations[managedResourcesEvictionTimestampAnno]
+		if !ok {
+			klusterlet.Annotations[managedResourcesEvictionTimestampAnno] = time.Now().Format(time.RFC3339)
+			return reconcileStop, err
+		}
+		evictionTime, perr := time.Parse(time.RFC3339, evictionTimeStr)
+		if perr != nil {
+			klog.Infof("Parse eviction time %v error %s", evictionTimeStr, perr)
+			klusterlet.Annotations[managedResourcesEvictionTimestampAnno] = time.Now().Format(time.RFC3339)
+			return reconcileStop, err
+		}
+
+		if evictionTime.Add(5 * time.Minute).Before(time.Now()) {
+			klog.Infof("Try to connect managed cluster timed out for 5 minutes, ignore the resources")
+			return reconcileStop, nil
+		}
+
+	}
+
+	delete(klusterlet.Annotations, managedResourcesEvictionTimestampAnno)
+	return reconcileStop, err
 }
 
 // cleanUpAppliedManifestWorks removes finalizer from the AppliedManifestWorks whose name starts with
