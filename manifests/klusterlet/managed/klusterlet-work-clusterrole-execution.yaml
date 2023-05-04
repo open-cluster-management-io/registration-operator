@@ -23,7 +23,7 @@ rules:
 # Allow OCM addons to setup metrics collection with Prometheus
 # TODO: Move this permission to the open-cluster-management:{{ .KlusterletName }}-work:execution Role (not ClusterRole)
 # when it is created.
-- apiGroups: ["monitoring.coreos.com"]
+- apiGroups: ["monitoring.coreos.com", "monitoring.rhobs"]
   resources: ["servicemonitors"]
   verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 # Allow agent to manage oauth clients
