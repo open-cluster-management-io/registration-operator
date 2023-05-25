@@ -1,3 +1,7 @@
+# Note: Do not edit any file in this repo.
+
+The component is moved to the [ocm](https://github.com/open-cluster-management-io/ocm) as this [task of consolidating code](https://github.com/open-cluster-management-io/ocm/issues/128) is going, please follow the [CONTRIBUTING Guidence in the ocm](https://github.com/open-cluster-management-io/ocm/blob/main/CONTRIBUTING.md) to contribute.
+
 # Registration Operator
 
 The Registration Operator has 2 operators, **Cluster Manager** and **Klusterlet**.
@@ -26,7 +30,7 @@ The controllers are all deployed in _open-cluster-management-agent_ namespace by
 1. Create a cluster with kind
 
    ```shell
-   kind create cluster 
+   kind create cluster
    ```
 
 2. Deploy
@@ -81,7 +85,7 @@ We mainly provide deployment in two scenarios:
    For example, if your clusters are created by kind, you need to use kind's command to export a kubeconfig of hub with an accessible `server` address. ([The related issue](https://github.com/kubernetes-sigs/kind/issues/1305))
 
    ```shell
-   kind get kubeconfig --name {your kind cluster name} --internal > ./.hub-kubeconfig # ./.hub-kubeconfig is default value of HUB_KUBECONFIG 
+   kind get kubeconfig --name {your kind cluster name} --internal > ./.hub-kubeconfig # ./.hub-kubeconfig is default value of HUB_KUBECONFIG
    ```
 
 3. Switch to spoke context and deploy agent components.
@@ -94,14 +98,14 @@ We mainly provide deployment in two scenarios:
 4. To clean the hub environment.
 
    ```shell
-   kubectl config use-context {hub-context} 
+   kubectl config use-context {hub-context}
    make clean-hub
    ```
 
 5. To clean the spoke environment.
 
    ```shell
-   kubectl config use-context {spoke-context} 
+   kubectl config use-context {spoke-context}
    make clean-spoke
    ```
 
@@ -136,7 +140,7 @@ We mainly provide deployment in two scenarios:
 3. Get the `EXTERNAL_HUB_KUBECONFIG` kubeconfig.
 
    ```shell
-   kind get kubeconfig --name hub --internal > ./.external-hub-kubeconfig  
+   kind get kubeconfig --name hub --internal > ./.external-hub-kubeconfig
    ```
 
 4. Switch to management cluster and deploy hub components.
